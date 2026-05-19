@@ -1,0 +1,35 @@
+.DS_Store
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+
+# Python virtual/env artifacts
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Build/cache artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# IDE/editor
+.idea/
+.vscode/
+
+# Large/binary artifacts not source code
+*.zip
+*.pdf
+wheelhouse/
+datasets/
+human+activity+recognition+using+smartphones/
+human+activity+recognition+using+smartphones (2)/
+
+# Nested git metadata (treat subprojects as plain source trees)
+**/.git/
