@@ -26,10 +26,35 @@ build/
 # Large/binary artifacts not source code
 *.zip
 *.pdf
+*.npz
+*.npy
+*.mat
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.pkl
+*.png
+*.jpg
+*.jpeg
 wheelhouse/
 datasets/
 human+activity+recognition+using+smartphones/
 human+activity+recognition+using+smartphones (2)/
+
+# Experiment outputs / local data caches
+**/runs/
+**/results/
+**/figures/
+CommEfficient/CommEfficient/runs/
+MFedMC/**/data/
+MFedMC/dataset/
+MFedMC/uci_har_mm/
+PMFH/data/
+ActionNet/recording_data/myo_library/myo-sdk-win-0.9.0/bin/
+ActionNet/recording_data/myo_library/myo-sdk-win-0.9.0/lib/
+ActionNet/recording_data/myo_library/myo-sdk-win-0.9.0/drivers/
+ActionNet/recording_data/myo_library/myo-sdk-win-0.9.0/*.unitypackage
 
 # Nested git metadata (treat subprojects as plain source trees)
 **/.git/

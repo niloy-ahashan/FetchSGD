@@ -32,7 +32,7 @@ def train_client(client_data, global_model, local_epochs=5, device="cuda"):
     client_model = type(global_model)(num_classes=global_model.fc.out_features).to(device)
     client_model.load_state_dict(copy.deepcopy(global_model).state_dict())
     flatten_lstm_modules(client_model)
-    optimizer = optim.SGD(client_model.parameters(), lr=0.1)
+    optimizer = optim.SGD(client_model.parameters(), lr=0.01)
     data, target = client_data
     data = torch.tensor(np.array(data)).float().to(device)
     target = torch.tensor(target).long().to(device)
