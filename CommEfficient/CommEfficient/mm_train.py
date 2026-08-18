@@ -302,7 +302,7 @@ def train(model, opt, lr_scheduler, train_loader, test_loader,
         row = {
             "epoch": epoch + 1,
             "lr": lr,
-            "train_time": train_time,
+            # "train_time": train_time,
             "train_loss": train_loss,
             "train_acc": train_acc,
             "test_loss": test_loss,

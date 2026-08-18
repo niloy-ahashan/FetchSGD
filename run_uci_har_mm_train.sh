@@ -50,7 +50,7 @@ python3 CommEfficient/CommEfficient/mm_train.py \
   --num_rows 3 \
   --num_cols 5000 \
   --lr_scale 0.1 \
-  --pivot_epoch 15 \
+  --pivot_epoch 10 \
   --num_blocks 1 \
-  --num_epochs 40 \
+  --num_epochs 20 \
   --device cuda

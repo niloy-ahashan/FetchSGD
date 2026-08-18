@@ -31,8 +31,8 @@ python3 CommEfficient/CommEfficient/mm_train.py \
   --num_classes 6 \
   --dirichlet_alpha 0.1 \
   --sim_loss_weight 0.0 \
-  --missing_loss_weight 1.0 \
-  --missing_prob 0.2 \
+  --missing_loss_weight 0.0 \
+  --missing_prob 0.0 \
   --skip_map \
   --mm_local_epochs 10 \
   --local_batch_size -1 \
@@ -44,11 +44,11 @@ python3 CommEfficient/CommEfficient/mm_train.py \
   --num_devices 1 \
   --num_workers 5 \
   --share_ps_gpu \
-  --k 50000 \
-  --num_rows 5 \
-  --num_cols 600000 \
+  --k 20000 \
+  --num_rows 3 \
+  --num_cols 5000 \
   --lr_scale 0.1 \
-  --pivot_epoch 15 \
+  --pivot_epoch 10 \
   --num_blocks 1 \
-  --num_epochs 100 \
+  --num_epochs 20 \
   --device cuda

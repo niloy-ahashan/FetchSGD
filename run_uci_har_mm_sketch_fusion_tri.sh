@@ -50,11 +50,11 @@ python3 CommEfficient/CommEfficient/mm_train.py \
   --num_devices 1 \
   --num_workers 5 \
   --share_ps_gpu \
-  --k 50000 \
-  --num_rows 5 \
-  --num_cols 60000 \
+  --k 20000 \
+  --num_rows 3 \
+  --num_cols 5000 \
   --lr_scale 0.1 \
-  --pivot_epoch 15 \
+  --pivot_epoch 10 \
   --num_blocks 1 \
-  --num_epochs 100 \
+  --num_epochs 20 \
   --device cuda

@@ -133,7 +133,7 @@ def train(model, opt, lr_scheduler, train_loader, test_loader,
         except:
             rounded_up = np.nan
         epoch_stats = {
-            'train_time': train_time,
+            # 'train_time': train_time,
             'train_loss': train_loss,
             'train_acc':  train_acc,
             'test_loss':  test_loss,
@@ -164,7 +164,7 @@ def train(model, opt, lr_scheduler, train_loader, test_loader,
             writer.add_scalar('Loss/test',  test_loss,        epoch)
             writer.add_scalar('Acc/train',  train_acc,        epoch)
             writer.add_scalar('Acc/test',   test_acc,         epoch)
-            writer.add_scalar('Time/train', train_time,       epoch)
+            # writer.add_scalar('Time/train', train_time,       epoch)
             writer.add_scalar('Time/test',  test_time,        epoch)
             writer.add_scalar('Time/total', timer.total_time, epoch)
             writer.add_scalar('Lr',         lr,               epoch)

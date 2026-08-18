@@ -1,15 +1,15 @@
- #!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # ---------------------------------------------------------------
-# UCI HAR with **two-way sketch fusion** (FetchSGD sketch mode):
-# only img-bucket and txt-bucket gradient masks are sketched, then
-# tables are added (no third “fusion” sketch). Shared layers
-# (integrator, classifier, txt_to_img) are assigned to the txt mask;
-# img_to_txt → img mask. See mm_sketch_fusion.py.
+# UCI HAR with **Independent Compression**
 #
-# Baseline (concat-then-sketch once): run_uci_har_mm_train.sh without
-# --mm_sketch_fusion.
+# Multimodal fusion is ordinary summation of refined features:
+#     fused = f'_img + f'_txt
+# There is no sketch-based fusion (unlike SketchFusion A/B/C).
+#
+# The fused model is then trained with original FetchSGD
+# (Rothchild et al.): one Count Sketch of the full gradient.
 #
 # Requires: datasets/uci_har_mm/data.npz (see prepare_uci_har_mm.py).
 # ---------------------------------------------------------------
@@ -18,10 +18,10 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 export PYTHONPATH="${ROOT}/CommEfficient${PYTHONPATH:+:${PYTHONPATH}}"
 
-python3 CommEfficient/CommEfficient/mm_train.py \
+python3 CommEfficient/CommEfficient/mm_train_independent.py \
   --dataset_dir datasets/uci_har_mm/ \
   --dataset_name MultiModal \
-  --model MultiModalNet \
+  --model IndependentCompression \
   --img_dim 348 \
   --txt_dim 213 \
   --feat_dim 512 \
@@ -32,7 +32,6 @@ python3 CommEfficient/CommEfficient/mm_train.py \
   --missing_loss_weight 0.0 \
   --missing_prob 0.0 \
   --skip_map \
-  --mm_sketch_fusion \
   --mm_local_epochs 10 \
   --local_batch_size -1 \
   --local_momentum 0.0 \
