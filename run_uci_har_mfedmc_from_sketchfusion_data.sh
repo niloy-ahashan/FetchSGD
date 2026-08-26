@@ -41,9 +41,9 @@ exec "${PYTHON}" main.py \
   --dirichlet_alpha 0.1 \
   --acc_dim 348 \
   --gyro_dim 213 \
-  --iterations 20 \
+  --iterations 50 \
   --local_epochs 5 \
-  --top_shap 2 \
+  --top_shap 0 \
   --client_select_ratio 1 \
   --eval_on_global_test \
   "$@"

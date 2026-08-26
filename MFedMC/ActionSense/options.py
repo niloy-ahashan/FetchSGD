@@ -24,7 +24,7 @@ def args_parser():
     parser.add_argument('--class_non_iid_rate', type=float, default=1.0)
     
     # Federated Learning Settings
-    parser.add_argument('--iterations', type=int, default=50)
+    parser.add_argument('--iterations', type=int, default=100)
     parser.add_argument('--local_epochs', type=int, default=5)
     
     # Modality Selection
