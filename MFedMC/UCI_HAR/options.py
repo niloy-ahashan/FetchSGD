@@ -40,7 +40,7 @@ def args_parser():
         help="Evaluate each client's fusion on the official global test set.",
     )
 
-    parser.add_argument("--iterations", type=int, default=20)
+    parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--local_epochs", type=int, default=5)
 
     parser.add_argument(
