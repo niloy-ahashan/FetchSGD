@@ -44,9 +44,9 @@ python3 CommEfficient/CommEfficient/mm_train_independent.py \
   --share_ps_gpu \
   --k 20000 \
   --num_rows 3 \
-  --num_cols 10000 \
+  --num_cols 5000 \
   --lr_scale 0.1 \
-  --pivot_epoch 10 \
+  --pivot_epoch 6 \
   --num_blocks 1 \
-  --num_epochs 20 \
+  --num_epochs 19 \
   --device cuda

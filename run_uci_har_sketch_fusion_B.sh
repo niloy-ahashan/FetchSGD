@@ -46,7 +46,7 @@ python3 CommEfficient/CommEfficient/mm_train.py \
   --share_ps_gpu \
   --k 20000 \
   --num_rows 3 \
-  --num_cols 10000 \
+  --num_cols 5000 \
   --lr_scale 0.1 \
   --pivot_epoch 10\
   --num_blocks 1 \
