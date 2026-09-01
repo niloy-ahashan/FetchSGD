@@ -25,6 +25,14 @@ def args_parser():
     parser.add_argument("--mm_dropout", type=float, default=0.3)
     parser.add_argument("--sketch_r", type=int, default=4)
     parser.add_argument("--sketch_c", type=int, default=128)
+    parser.add_argument(
+        "--fusion_mode",
+        choices=["sketch", "sum"],
+        default="sketch",
+        help="Feature fusion before the integrator. "
+        "'sketch' = SketchFusionB (Count Sketch then add). "
+        "'sum' = IndependentCompression (add refined feat_dim vectors).",
+    )
 
     parser.add_argument("--num_epochs", type=int, default=20)
     parser.add_argument("--local_epochs", type=int, default=10)

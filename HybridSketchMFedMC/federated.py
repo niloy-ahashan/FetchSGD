@@ -156,7 +156,11 @@ def run_federated(args, model, clients, global_test, modalities, device):
     prev_update_nnz = grad_size
     updated_since_init = torch.zeros(grad_size, dtype=torch.bool, device=device)
 
-    print(f"SketchFusionBNet config: mods={list(modalities)} dims={[int(x.shape[1]) if x.ndim==2 else 0 for x in clients[0]['xs']]}")
+    print(
+        f"SketchFusionBNet config: fusion_mode={getattr(args, 'fusion_mode', 'sketch')} "
+        f"mods={list(modalities)} "
+        f"dims={[int(x.shape[1]) if x.ndim==2 else 0 for x in clients[0]['xs']]}"
+    )
     print(f"Grad size: {grad_size}")
     print(f"Total params: {grad_size}")
     print(

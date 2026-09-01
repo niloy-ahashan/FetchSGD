@@ -1,13 +1,19 @@
 """
-SketchFusionB-style fusion for an arbitrary number of modalities.
+Multimodal fusion for an arbitrary number of modalities.
 
-Each modality has FeaExtractor + FeaRefiner. Refined vectors are mapped
-with a *fixed* Count Sketch (scatter_add) and summed, then decoded by
-the integrator MLP + classifier — the same fusion as SketchFusionB.
+Each modality has FeaExtractor + FeaRefiner. Refined vectors are fused
+by one of:
 
-For two modalities the architecture matches CommEfficient SketchFusionB
-(including unused-at-zero-weight cross-modal predictors) so UCI HAR
-runs are comparable. For three or more modalities the layout matches
+  fusion_mode="sketch"  — SketchFusionB: fixed Count Sketch then sum
+  fusion_mode="sum"     — IndependentCompression: element-wise sum in
+                          feat_dim (late / additive feature fusion)
+
+The fused vector is decoded by the integrator MLP + classifier.
+Gradient communication is separate (FetchSGD) in either case.
+
+For two modalities the architecture matches CommEfficient SketchFusionB /
+IndependentCompression (including unused-at-zero-weight cross-modal
+predictors). For three or more modalities the layout matches
 SketchFusionB4 (no pairwise cross-modal heads).
 """
 
@@ -65,7 +71,7 @@ class CrossModalPredictor(nn.Module):
 
 
 class SketchFusionBNet(nn.Module):
-    """Fixed Count Sketch fusion + MLP head, N modalities."""
+    """N-modality fusion net: Count Sketch (SketchFusionB) or summation."""
 
     def __init__(
         self,
@@ -75,16 +81,23 @@ class SketchFusionBNet(nn.Module):
         dropout=0.3,
         sketch_r=4,
         sketch_c=128,
+        fusion_mode="sketch",
     ):
         super().__init__()
         self.mod_dims = tuple(int(d) for d in mod_dims)
         self.n_mod = len(self.mod_dims)
         if self.n_mod < 2:
             raise ValueError("SketchFusionBNet needs at least 2 modalities")
+        fusion_mode = str(fusion_mode).lower()
+        if fusion_mode not in ("sketch", "sum"):
+            raise ValueError(
+                f"fusion_mode must be 'sketch' or 'sum', got {fusion_mode!r}"
+            )
+        self.fusion_mode = fusion_mode
         self.feat_dim = feat_dim
         self.sketch_r = sketch_r
         self.sketch_c = sketch_c
-        table_dim = sketch_r * sketch_c
+        fuse_dim = sketch_r * sketch_c if fusion_mode == "sketch" else feat_dim
 
         self.extractors = nn.ModuleList(
             [FeaExtractor(d, feat_dim, dropout) for d in self.mod_dims]
@@ -93,7 +106,7 @@ class SketchFusionBNet(nn.Module):
             [FeaRefiner(feat_dim) for _ in self.mod_dims]
         )
 
-        # Match two-modality SketchFusionB (Acc / Gyro) including MFM heads.
+        # Match two-modality SketchFusionB / IndependentCompression (MFM heads).
         self.img_to_txt = None
         self.txt_to_img = None
         if self.n_mod == 2:
@@ -102,18 +115,22 @@ class SketchFusionBNet(nn.Module):
 
         self._missing_loss = torch.tensor(0.0)
 
-        rng = torch.Generator().manual_seed(SKETCH_HASH_SEED)
-        self.register_buffer(
-            "buckets",
-            torch.randint(0, sketch_c, (sketch_r, feat_dim), generator=rng),
-        )
-        self.register_buffer(
-            "signs",
-            (torch.randint(0, 2, (sketch_r, feat_dim), generator=rng) * 2 - 1).float(),
-        )
+        if fusion_mode == "sketch":
+            rng = torch.Generator().manual_seed(SKETCH_HASH_SEED)
+            self.register_buffer(
+                "buckets",
+                torch.randint(0, sketch_c, (sketch_r, feat_dim), generator=rng),
+            )
+            self.register_buffer(
+                "signs",
+                (torch.randint(0, 2, (sketch_r, feat_dim), generator=rng) * 2 - 1).float(),
+            )
+        else:
+            self.register_buffer("buckets", torch.empty(0, dtype=torch.long))
+            self.register_buffer("signs", torch.empty(0))
 
         self.integrator = nn.Sequential(
-            nn.Linear(table_dim, feat_dim),
+            nn.Linear(fuse_dim, feat_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(dropout),
             nn.Linear(feat_dim, feat_dim),
@@ -165,13 +182,18 @@ class SketchFusionBNet(nn.Module):
 
         return [feats[i] * self.refiners[i](feats[i]) for i in range(self.n_mod)]
 
+    def _project(self, refined):
+        if self.fusion_mode == "sketch":
+            return self._sketch_features(refined)
+        return refined
+
     def _fuse_refined(self, refined, modality_mask=None):
         total = None
         for i, r in enumerate(refined):
             if modality_mask is not None and not bool(modality_mask[i]):
                 continue
-            sk = self._sketch_features(r)
-            total = sk if total is None else total + sk
+            mapped = self._project(r)
+            total = mapped if total is None else total + mapped
         if total is None:
             raise RuntimeError("No modalities selected for fusion")
         return total
@@ -189,7 +211,7 @@ class SketchFusionBNet(nn.Module):
     def forward_single_modality(self, i, x):
         """Logits from modality i alone (for MFedMC-style SHAP)."""
         refined = self._refine_one(i, x)
-        fused = self._sketch_features(refined)
+        fused = self._project(refined)
         H = self.integrator(fused)
         return self.classifier(H)
 

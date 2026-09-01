@@ -54,8 +54,9 @@ def main():
         "dropout": args.mm_dropout,
         "sketch_r": args.sketch_r,
         "sketch_c": args.sketch_c,
+        "fusion_mode": args.fusion_mode,
     }
-    print(f"SketchFusionB config: {model_config}")
+    print(f"Hybrid fusion config: {model_config}")
     model = SketchFusionBNet(**model_config).to(device)
 
     results_dir = args.results_dir
@@ -94,7 +95,7 @@ def main():
     mw_str = "_".join(f"{w:.1f}" for w in args.modality_weights)
     file_name = os.path.join(
         results_dir,
-        f"Hybrid_UCI_HAR_Top_{args.num_select_modalities}_"
+        f"Hybrid_UCI_HAR_{args.fusion_mode}_Top_{args.num_select_modalities}_"
         f"ShapCommRec_{mw_str}_Client_{args.client_select}_"
         f"{args.client_select_ratio:.1f}.npz",
     )
@@ -118,6 +119,7 @@ def main():
         samples_per_client=np.array(meta["samples_per_client"]),
         total_download_mib=history["total_download_mib"],
         total_upload_mib=history["total_upload_mib"],
+        fusion_mode=np.array(args.fusion_mode),
     )
     print(f"Results saved to {file_name}")
 

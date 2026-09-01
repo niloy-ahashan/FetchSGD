@@ -8,7 +8,8 @@ set -euo pipefail
 # Extra args are forwarded to main.py, e.g.:
 #   ./HybridSketchMFedMC/run_uci_har.sh --client_select random
 #   ./HybridSketchMFedMC/run_uci_har.sh --num_select_modalities 1
-#   ./HybridSketchMFedMC/run_uci_har.sh --prefer-higher-loss
+#   ./HybridSketchMFedMC/run_uci_har.sh --fusion_mode sum
+#   (sum = IndependentCompression additive fusion; sketch = SketchFusionB)
 #
 # Requires: datasets/uci_har_mm/data.npz
 # ---------------------------------------------------------------
@@ -32,7 +33,7 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --acc_dim 348 \
   --gyro_dim 213 \
   --feat_dim 512 \
-  --sketch_r 4 \
+  --sketch_r 2 \
   --sketch_c 128 \
   --mm_dropout 0.3 \
   --num_epochs 100 \
@@ -47,6 +48,7 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --lr_scale 0.1 \
   --pivot_epoch 15 \
   --num_blocks 1 \
+  --fusion_mode sketch \
   --client_select loss \
   --client_select_ratio 0.2 \
   --num_select_modalities 1 \
