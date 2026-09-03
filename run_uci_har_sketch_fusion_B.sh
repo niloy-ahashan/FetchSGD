@@ -25,7 +25,7 @@ python3 CommEfficient/CommEfficient/mm_train.py \
   --img_dim 348 \
   --txt_dim 213 \
   --feat_dim 512 \
-  --sketch_r 2 \
+  --sketch_r 4 \
   --sketch_c 128 \
   --mm_dropout 0.3 \
   --num_classes 6 \
@@ -50,5 +50,5 @@ python3 CommEfficient/CommEfficient/mm_train.py \
   --lr_scale 0.1 \
   --pivot_epoch 10\
   --num_blocks 1 \
-  --num_epochs 20 \
+  --num_epochs 19 \
   --device cuda

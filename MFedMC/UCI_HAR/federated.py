@@ -1,5 +1,6 @@
 import copy
 import concurrent.futures as cf
+import time
 
 import numpy as np
 import shap
@@ -354,15 +355,16 @@ def federated_learning(args, client_data_train, client_data_test, global_models,
     client_last_selected_round = np.full((num_clients,), -1)
     accuracy_matrix, modality_counts = [], []
     upload_bytes_per_round: list[int] = []
+    elapsed_seconds_per_round: list[float] = []
     client_selected_rounds = []
     modality_selected_rounds = []
 
     mod_acc_hdr = "  ".join(f"{m:>8}" for m in modalities)
-    mod_up_hdr = "  ".join(f"{m+'_up':>7}" for m in modalities)
     header = (
         f"{'iter':>4}  {'fusion':>8}  {mod_acc_hdr}  "
-        f"{'uplink_MB':>10}  {'cum_MB':>10}  {mod_up_hdr}  clients"
+        f"{'up_MB':>10}  {'cum_up_MB':>10}  {'time_s':>10}"
     )
+    train_start = time.perf_counter()
     print(header)
     print("-" * len(header))
 
@@ -406,13 +408,13 @@ def federated_learning(args, client_data_train, client_data_test, global_models,
         accuracy_matrix.append(accs)
         mean_fusion = float(np.nanmean(accs[:, -1]))
         mean_mod = np.nanmean(accs[:, :-1], axis=0)
-        cum_bytes = int(np.sum(upload_bytes_per_round))
-        selected_ids = ",".join(client_list[i] for i, v in enumerate(client_sel) if v)
+        cum_up = int(np.sum(upload_bytes_per_round))
+        elapsed_s = time.perf_counter() - train_start
+        elapsed_seconds_per_round.append(elapsed_s)
         mod_acc = "  ".join(f"{a:8.2f}" for a in mean_mod)
-        mod_up = "  ".join(f"{int(c):7d}" for c in counts)
         print(
             f"{ite + 1:4d}  {mean_fusion:8.2f}  {mod_acc}  "
-            f"{ub_round / 1e6:10.6f}  {cum_bytes / 1e6:10.6f}  {mod_up}  {selected_ids}"
+            f"{ub_round / 1e6:10.6f}  {cum_up / 1e6:10.6f}  {elapsed_s:10.1f}"
         )
 
     acc = np.array(accuracy_matrix)
@@ -420,4 +422,12 @@ def federated_learning(args, client_data_train, client_data_test, global_models,
     client_selected = np.stack(client_selected_rounds, axis=0)
     modality_selected = np.stack(modality_selected_rounds, axis=0)
     upload_bytes_round = np.array(upload_bytes_per_round, dtype=np.int64)
-    return acc, mod_counts, upload_bytes_round, client_selected, modality_selected
+    elapsed_seconds_round = np.array(elapsed_seconds_per_round, dtype=np.float64)
+    return (
+        acc,
+        mod_counts,
+        upload_bytes_round,
+        client_selected,
+        modality_selected,
+        elapsed_seconds_round,
+    )

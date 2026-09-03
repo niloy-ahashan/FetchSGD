@@ -379,13 +379,6 @@ def run_federated(args, model, clients, global_test, modalities, device):
             }
         )
 
-        sel_ids = ",".join(str(i) for i in selected.tolist())
-        mod_counts = mod_sel_row.sum(axis=0)
-        mod_str = " ".join(f"{m}={int(c)}" for m, c in zip(modalities, mod_counts))
-        print(
-            f"    selected clients=[{sel_ids}]  modality uploads: {mod_str}  "
-            f"n_upload={n_upload}  sketch_nnz={nnz}"
-        )
 
         history["train_loss"].append(train_loss)
         history["train_acc"].append(train_acc)

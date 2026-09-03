@@ -10,7 +10,9 @@ from options import args_parser
 from dataset import (
     MODALITIES,
     attach_global_test,
+    dirichlet_partition_data,
     load_from_sketchfusion_dir,
+    load_subject_clients,
     stratified_split_client_data,
 )
 from federated import federated_learning
@@ -34,13 +36,24 @@ def main():
         results_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), results_dir)
     os.makedirs(results_dir, exist_ok=True)
 
-    print("Loading SketchFusionB UCI HAR split (Acc / Gyro feature vectors)...")
-    client_data, global_test, meta = load_from_sketchfusion_dir(
-        dataset_dir,
-        num_clients=args.num_clients,
-        dirichlet_alpha=args.dirichlet_alpha,
-        seed=args.seed,
-    )
+    print("Loading UCI HAR Acc/Gyro features...")
+    if args.partition == "subject":
+        client_data, global_test, meta = load_subject_clients(
+            dataset_dir, uci_root=args.uci_root or None
+        )
+        args.num_clients = meta["num_clients"]
+        if args.class_non_iid_rate < 1.0:
+            print(f"Using Dirichlet partitioning (alpha={args.class_non_iid_rate})...")
+            client_data = dirichlet_partition_data(
+                client_data, alpha=args.class_non_iid_rate, seed=args.seed
+            )
+    else:
+        client_data, global_test, meta = load_from_sketchfusion_dir(
+            dataset_dir,
+            num_clients=args.num_clients,
+            dirichlet_alpha=args.dirichlet_alpha,
+            seed=args.seed,
+        )
     if meta["acc_dim"] != args.acc_dim or meta["gyro_dim"] != args.gyro_dim:
         print(
             f"Warning: data dims Acc={meta['acc_dim']} Gyro={meta['gyro_dim']} "
@@ -53,10 +66,13 @@ def main():
         client_data, train_ratio=args.train_ratio, seed=args.seed
     )
     if args.eval_on_global_test:
-        print("Evaluating fusion on the official UCI HAR test set (same as SketchFusionB).")
+        print("Evaluating fusion on the official UCI HAR test set.")
         client_data_test = attach_global_test(client_data_train.keys(), global_test)
     else:
-        print(f"Evaluating fusion on per-client held-out split (train_ratio={args.train_ratio}).")
+        print(
+            f"Evaluating fusion on per-client held-out split "
+            f"(train_ratio={args.train_ratio}, ActionSense protocol)."
+        )
         client_data_test = client_data_local_test
 
     k = args.num_classes
@@ -70,7 +86,14 @@ def main():
         m.to(device)
 
     print("Starting MFedMC federated learning on Acc + Gyro...")
-    acc, mod_counts, upload_bytes_round, client_selected, modality_selected = federated_learning(
+    (
+        acc,
+        mod_counts,
+        upload_bytes_round,
+        client_selected,
+        modality_selected,
+        elapsed_seconds_round,
+    ) = federated_learning(
         args=args,
         client_data_train=client_data_train,
         client_data_test=client_data_test,
@@ -108,7 +131,7 @@ def main():
     mw_str = "_".join([f"{w:.1f}" for w in args.modality_weights])
     file_name = os.path.join(
         results_dir,
-        f"MFedMC_UCI_HAR_mm_Top_{args.top_shap}_ShapCommRec_{mw_str}_"
+        f"MFedMC_UCI_HAR_mm_{args.partition}_Top_{args.top_shap}_ShapCommRec_{mw_str}_"
         f"Client_{args.client_select_ratio:.1f}.npz",
     )
     np.savez(
@@ -117,6 +140,7 @@ def main():
         mod=mod_counts,
         upload_bytes_round=upload_bytes_round,
         upload_bytes_cumulative=upload_bytes_cumulative,
+        elapsed_seconds_round=elapsed_seconds_round,
         mean_fusion_acc=mean_fusion_acc,
         client_selected=client_selected,
         modality_selected=modality_selected,
@@ -125,7 +149,8 @@ def main():
         modality_select_freq_given_client=modality_select_freq_given_client,
         modalities=np.array(MODALITIES),
         client_ids=np.array(list(client_data_train.keys())),
-        reused_sketchfusion_cache=np.array(meta["reused_sketchfusion_cache"]),
+        reused_sketchfusion_cache=np.array(meta.get("reused_sketchfusion_cache", False)),
+        partition=np.array(args.partition),
         dataset_dir=np.array(meta["dataset_dir"]),
         samples_per_client=np.array(meta["samples_per_client"]),
     )

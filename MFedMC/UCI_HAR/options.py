@@ -16,9 +16,31 @@ def args_parser():
         help="Directory with data.npz and optional client*.npz from SketchFusionB. "
         "Default: <repo>/datasets/uci_har_mm",
     )
+    parser.add_argument(
+        "--uci_root",
+        type=str,
+        default="",
+        help="Inner UCI HAR folder (contains train/subject_train.txt). "
+        "Used when --partition subject.",
+    )
+    parser.add_argument(
+        "--partition",
+        type=str,
+        default="subject",
+        choices=["subject", "dirichlet"],
+        help="subject: ActionSense-style one client per UCI person (default). "
+        "dirichlet: SketchFusionB 10-client cache.",
+    )
     parser.add_argument("--num_classes", type=int, default=6)
     parser.add_argument("--num_clients", type=int, default=10)
     parser.add_argument("--dirichlet_alpha", type=float, default=0.1)
+    parser.add_argument(
+        "--class_non_iid_rate",
+        type=float,
+        default=1.0,
+        help="ActionSense-style extra Dirichlet on subject clients. "
+        "1.0 = off (default). Values < 1 apply Dirichlet with this alpha.",
+    )
     parser.add_argument("--acc_dim", type=int, default=348)
     parser.add_argument("--gyro_dim", type=int, default=213)
     parser.add_argument("--hidden", type=int, default=128)
@@ -29,15 +51,15 @@ def args_parser():
     parser.add_argument(
         "--train_ratio",
         type=float,
-        default=1.0,
-        help="If < 1, stratified split of each client for a local test set. "
-        "Default 1.0 uses the official UCI HAR test set (same as SketchFusionB).",
+        default=0.8,
+        help="Per-client stratified train fraction (ActionSense default 0.8).",
     )
     parser.add_argument(
         "--eval_on_global_test",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Evaluate each client's fusion on the official global test set.",
+        default=False,
+        help="If set, score fusion on the official global test set. "
+        "Default is local hold-out like ActionSense.",
     )
 
     parser.add_argument("--iterations", type=int, default=100)

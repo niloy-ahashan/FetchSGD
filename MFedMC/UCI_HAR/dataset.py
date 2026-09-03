@@ -13,10 +13,16 @@ from __future__ import annotations
 
 import json
 import os
+from collections import defaultdict
 
 import numpy as np
 
 MODALITIES = ["Acc", "Gyro"]
+
+_DEFAULT_UCI_ROOTS = (
+    "human+activity+recognition+using+smartphones/UCI HAR Dataset/UCI HAR Dataset",
+    "MFedMC/UCI_HAR/data/UCI HAR Dataset",
+)
 
 
 def _as_int_labels(y: np.ndarray) -> np.ndarray:
@@ -150,7 +156,146 @@ def load_from_sketchfusion_dir(
     return client_data, global_test, meta
 
 
+def _repo_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def find_uci_root(uci_root: str | None = None) -> str:
+    candidates = []
+    if uci_root:
+        candidates.append(uci_root)
+    env = os.environ.get("UCI_ROOT")
+    if env:
+        candidates.append(env)
+    repo = _repo_root()
+    candidates.extend(os.path.join(repo, rel) for rel in _DEFAULT_UCI_ROOTS)
+    for path in candidates:
+        path = os.path.abspath(path)
+        if os.path.isfile(os.path.join(path, "train", "subject_train.txt")):
+            return path
+    raise FileNotFoundError(
+        "Need UCI HAR train/subject_train.txt for subject-as-client partitioning. "
+        "Pass --uci_root to the inner 'UCI HAR Dataset' folder."
+    )
+
+
+def load_subject_clients(dataset_dir: str, uci_root: str | None = None):
+    """ActionSense-style clients: one client per UCI HAR subject, all 6 activities.
+
+    Uses the same Acc/Gyro vectors as SketchFusionB ``data.npz``, grouped by
+    ``subject_*.txt`` (train+test concatenated, then split 80/20 locally).
+    """
+    dataset_dir = os.path.abspath(dataset_dir)
+    data_npz = os.path.join(dataset_dir, "data.npz")
+    if not os.path.isfile(data_npz):
+        raise FileNotFoundError(
+            f"Missing {data_npz}. Build it with "
+            "CommEfficient/CommEfficient/prepare_uci_har_mm.py."
+        )
+    root = find_uci_root(uci_root)
+    raw = np.load(data_npz)
+    img = np.concatenate([raw["img_train"], raw["img_test"]], axis=0).astype(np.float32)
+    gyro = np.concatenate([raw["txt_train"], raw["txt_test"]], axis=0).astype(np.float32)
+    y = np.concatenate(
+        [_as_int_labels(raw["labels_train"]), _as_int_labels(raw["labels_test"])]
+    )
+    s_tr = np.loadtxt(os.path.join(root, "train", "subject_train.txt")).astype(np.int64).ravel()
+    s_te = np.loadtxt(os.path.join(root, "test", "subject_test.txt")).astype(np.int64).ravel()
+    if len(s_tr) != len(raw["labels_train"]) or len(s_te) != len(raw["labels_test"]):
+        raise ValueError(
+            f"subject files length mismatch: train {len(s_tr)} vs {len(raw['labels_train'])}, "
+            f"test {len(s_te)} vs {len(raw['labels_test'])}"
+        )
+    subj = np.concatenate([s_tr, s_te])
+
+    client_data = {}
+    n_per = []
+    n_cls = []
+    for sid in sorted(np.unique(subj).tolist()):
+        mask = subj == sid
+        packed = _pack_client(img[mask], gyro[mask], y[mask])
+        cid = f"S{int(sid):02d}"
+        client_data[cid] = packed
+        n_per.append(int(mask.sum()))
+        n_cls.append(len(set(packed["Acc"][1])))
+
+    print(f"ActionSense-style subject clients from {root}")
+    print(
+        f"  Acc dim={img.shape[1]}, Gyro dim={gyro.shape[1]}, "
+        f"classes={int(y.max()) + 1}, N={len(y)}, subjects={len(client_data)}"
+    )
+    print(f"  samples/client: min={min(n_per)}, max={max(n_per)}, mean={np.mean(n_per):.0f}")
+    print(f"  classes/client: min={min(n_cls)}, max={max(n_cls)}")
+
+    meta = {
+        "dataset_dir": dataset_dir,
+        "uci_root": root,
+        "reused_sketchfusion_cache": False,
+        "partition": "subject",
+        "num_clients": len(client_data),
+        "acc_dim": int(img.shape[1]),
+        "gyro_dim": int(gyro.shape[1]),
+        "samples_per_client": n_per,
+        "num_test": int(len(raw["labels_test"])),
+        "modalities": MODALITIES,
+    }
+    global_test = _pack_client(raw["img_test"], raw["txt_test"], raw["labels_test"])
+    return client_data, global_test, meta
+
+
+def dirichlet_partition_data(client_data, alpha, seed=42):
+    """Optional extra label skew, same role as ActionSense ``class_non_iid_rate``."""
+    np.random.seed(seed)
+    clients = list(client_data.keys())
+    data_by_label = defaultdict(list)
+    for client_id, streams in client_data.items():
+        ref_key = list(streams.keys())[0]
+        _, ref_labels = streams[ref_key]
+        for i, label in enumerate(ref_labels):
+            sample_data = {
+                mapped_key: (datasets[i], labels[i])
+                for mapped_key, (datasets, labels) in streams.items()
+                if i < len(datasets)
+            }
+            data_by_label[label].append((client_id, sample_data))
+
+    new_client_data = {
+        client_id: {key: ([], []) for key in client_data[client_id].keys()}
+        for client_id in clients
+    }
+    num_clients = len(clients)
+    for label, label_data in data_by_label.items():
+        if not label_data:
+            continue
+        proportions = np.random.dirichlet(np.repeat(alpha, num_clients))
+        client_sample_counts = np.round(proportions * len(label_data)).astype(int)
+        diff = len(label_data) - np.sum(client_sample_counts)
+        if diff > 0:
+            indices = np.random.choice(num_clients, int(diff), replace=False)
+            for index in indices:
+                client_sample_counts[index] += 1
+        elif diff < 0:
+            indices = np.random.choice(num_clients, int(-diff), replace=False)
+            for index in indices:
+                if client_sample_counts[index] > 0:
+                    client_sample_counts[index] -= 1
+        np.random.shuffle(label_data)
+        start_idx = 0
+        for i, client_id in enumerate(clients):
+            count = client_sample_counts[i]
+            if count > 0:
+                end_idx = min(start_idx + count, len(label_data))
+                for j in range(start_idx, end_idx):
+                    for mapped_key, (dataset, data_label) in label_data[j][1].items():
+                        if mapped_key in new_client_data[client_id]:
+                            new_client_data[client_id][mapped_key][0].append(dataset)
+                            new_client_data[client_id][mapped_key][1].append(data_label)
+                start_idx = end_idx
+    return new_client_data
+
+
 def stratified_split_client_data(client_data, train_ratio=0.8, seed=42):
+    """Per-client stratified 80/20, matching ActionSense ``main.py``."""
     rng = np.random.RandomState(seed)
     client_data_train = {}
     client_data_test = {}
@@ -165,17 +310,14 @@ def stratified_split_client_data(client_data, train_ratio=0.8, seed=42):
                 client_data_train[client][device_stream] = (list(data[0]), list(data[1]))
                 client_data_test[client][device_stream] = ([], [])
             continue
-        unique_classes, class_indices, class_counts = np.unique(
-            y, return_index=True, return_counts=True
-        )
         train_indices = []
         test_indices = []
-        for cls, idx, count in zip(unique_classes, class_indices, class_counts):
-            all_indices = np.arange(idx, idx + count)
+        for cls in np.unique(y):
+            all_indices = np.where(y == cls)[0]
             rng.shuffle(all_indices)
-            boundary = int(count * train_ratio)
-            train_indices.extend(all_indices[:boundary])
-            test_indices.extend(all_indices[boundary:])
+            boundary = int(len(all_indices) * train_ratio)
+            train_indices.extend(all_indices[:boundary].tolist())
+            test_indices.extend(all_indices[boundary:].tolist())
         for device_stream, data in modalities_data.items():
             x = data[0]
             y_all = data[1]
