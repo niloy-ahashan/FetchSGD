@@ -165,6 +165,31 @@ def test_client(client_data, global_models, fusion_module, modalities, device="c
     return modality_accuracies + [fusion_accuracy]
 
 
+def evaluate_global_test_acc(global_models, global_test, modalities, device):
+    """Official-test accuracy matching Independent Compression / HybridSketchMFedMC.
+
+    One global model, both modalities, argmax of summed log-probs on the
+    shared UCI HAR test split. Returns a fraction in [0, 1].
+    """
+    if global_test is None:
+        return float("nan")
+    n = len(global_test[modalities[0]][1])
+    if n < 1:
+        return float("nan")
+    fused = None
+    y = None
+    with torch.no_grad():
+        for mod_idx, modality in enumerate(modalities):
+            data, target = _to_tensor_xy(global_test[modality], device)
+            if data is None:
+                return float("nan")
+            y = target
+            logp = global_models[mod_idx].to(device)(data)
+            fused = logp if fused is None else fused + logp
+    pred = fused.argmax(dim=1)
+    return float((pred == y).float().mean().item())
+
+
 def compute_modality_priority(shap_value, model_size, recency, modality_weights, top_shap):
     # Same rule as ActionSense/federated.py: keep the `top_shap` highest-priority
     # modalities (set the rest to -1 so they are not uploaded).
@@ -349,19 +374,23 @@ def evaluate_round(client_list, client_data_train, client_data_test, global_mode
     return np.array(accs, dtype=np.float64)
 
 
-def federated_learning(args, client_data_train, client_data_test, global_models, modalities, device):
+def federated_learning(
+    args, client_data_train, client_data_test, global_models, modalities, device,
+    global_test=None,
+):
     num_clients = len(client_data_train)
     recency_history = np.full((num_clients, len(modalities)), -1)
     client_last_selected_round = np.full((num_clients,), -1)
     accuracy_matrix, modality_counts = [], []
     upload_bytes_per_round: list[int] = []
     elapsed_seconds_per_round: list[float] = []
+    test_acc_per_round: list[float] = []
     client_selected_rounds = []
     modality_selected_rounds = []
 
     mod_acc_hdr = "  ".join(f"{m:>8}" for m in modalities)
     header = (
-        f"{'iter':>4}  {'fusion':>8}  {mod_acc_hdr}  "
+        f"{'iter':>4}  {'test_acc':>8}  {'fusion':>8}  {mod_acc_hdr}  "
         f"{'up_MB':>10}  {'cum_up_MB':>10}  {'time_s':>10}"
     )
     train_start = time.perf_counter()
@@ -406,6 +435,8 @@ def federated_learning(args, client_data_train, client_data_test, global_models,
             client_list, client_data_train, client_data_test, global_models, modalities, device
         )
         accuracy_matrix.append(accs)
+        test_acc = evaluate_global_test_acc(global_models, global_test, modalities, device)
+        test_acc_per_round.append(test_acc)
         mean_fusion = float(np.nanmean(accs[:, -1]))
         mean_mod = np.nanmean(accs[:, :-1], axis=0)
         cum_up = int(np.sum(upload_bytes_per_round))
@@ -413,7 +444,7 @@ def federated_learning(args, client_data_train, client_data_test, global_models,
         elapsed_seconds_per_round.append(elapsed_s)
         mod_acc = "  ".join(f"{a:8.2f}" for a in mean_mod)
         print(
-            f"{ite + 1:4d}  {mean_fusion:8.2f}  {mod_acc}  "
+            f"{ite + 1:4d}  {test_acc:8.4f}  {mean_fusion:8.2f}  {mod_acc}  "
             f"{ub_round / 1e6:10.6f}  {cum_up / 1e6:10.6f}  {elapsed_s:10.1f}"
         )
 
@@ -423,6 +454,7 @@ def federated_learning(args, client_data_train, client_data_test, global_models,
     modality_selected = np.stack(modality_selected_rounds, axis=0)
     upload_bytes_round = np.array(upload_bytes_per_round, dtype=np.int64)
     elapsed_seconds_round = np.array(elapsed_seconds_per_round, dtype=np.float64)
+    test_acc = np.array(test_acc_per_round, dtype=np.float64)
     return (
         acc,
         mod_counts,
@@ -430,4 +462,5 @@ def federated_learning(args, client_data_train, client_data_test, global_models,
         client_selected,
         modality_selected,
         elapsed_seconds_round,
+        test_acc,
     )

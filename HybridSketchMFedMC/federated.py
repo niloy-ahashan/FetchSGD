@@ -357,11 +357,11 @@ def run_federated(args, model, clients, global_test, modalities, device):
         total_upload += upload_mb
 
         try:
-            rounded_down = round(download_mb)
+            rounded_down = (download_mb)
         except Exception:
             rounded_down = np.nan
         try:
-            rounded_up = round(upload_mb)
+            rounded_up = (upload_mb)
         except Exception:
             rounded_up = np.nan
 

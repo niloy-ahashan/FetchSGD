@@ -93,6 +93,7 @@ def main():
         client_selected,
         modality_selected,
         elapsed_seconds_round,
+        test_acc,
     ) = federated_learning(
         args=args,
         client_data_train=client_data_train,
@@ -100,6 +101,7 @@ def main():
         global_models=global_modality_encoders,
         modalities=MODALITIES,
         device=device,
+        global_test=global_test,
     )
     upload_bytes_cumulative = np.cumsum(upload_bytes_round)
     mean_fusion_acc = np.nanmean(acc[:, :, -1], axis=1)
@@ -124,7 +126,9 @@ def main():
         + ", ".join(f"{m}={f:.4f}" for m, f in zip(MODALITIES, modality_select_freq_given_client))
     )
     print(
-        f"Final mean fusion accuracy: {float(mean_fusion_acc[-1]):.2f}% | "
+        f"Final test accuracy: {float(test_acc[-1]):.4f} "
+        f"({100.0 * float(test_acc[-1]):.2f}%) | "
+        f"RF fusion: {float(mean_fusion_acc[-1]):.2f}% | "
         f"Cumulative uplink: {int(upload_bytes_cumulative[-1]) / 1e6:.6f} MB"
     )
 
@@ -141,6 +145,7 @@ def main():
         upload_bytes_round=upload_bytes_round,
         upload_bytes_cumulative=upload_bytes_cumulative,
         elapsed_seconds_round=elapsed_seconds_round,
+        test_acc=test_acc,
         mean_fusion_acc=mean_fusion_acc,
         client_selected=client_selected,
         modality_selected=modality_selected,
