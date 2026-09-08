@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 import numpy as np
 import torch
 
-from dataset import load_uci_har_mm
+from dataset import load_mhealth_mm, load_uci_har_mm
 from federated import run_federated
 from models import SketchFusionBNet
 from options import args_parser
@@ -29,21 +29,34 @@ def main():
     if str(device) != args.device:
         print(f"Requested {args.device} but CUDA is unavailable — using {device}")
 
-    print("Loading SketchFusionB UCI HAR split (Acc / Gyro feature vectors)...")
-    clients, global_test, meta = load_uci_har_mm(
-        args.dataset_dir,
-        num_clients=args.num_clients,
-        dirichlet_alpha=args.dirichlet_alpha,
-        seed=42,
-    )
+    if args.dataset == "mhealth":
+        print("Loading SketchFusionB4 mHealth split (Acc/Gyro/Mag/ECG feature vectors)...")
+        clients, global_test, meta = load_mhealth_mm(
+            args.dataset_dir,
+            num_clients=args.num_clients,
+            dirichlet_alpha=args.dirichlet_alpha,
+            seed=42,
+        )
+    else:
+        print("Loading SketchFusionB UCI HAR split (Acc / Gyro feature vectors)...")
+        clients, global_test, meta = load_uci_har_mm(
+            args.dataset_dir,
+            num_clients=args.num_clients,
+            dirichlet_alpha=args.dirichlet_alpha,
+            seed=42,
+        )
     modalities = list(meta["modalities"])
     mod_dims = list(meta["mod_dims"])
-    if mod_dims[0] != args.acc_dim or mod_dims[1] != args.gyro_dim:
-        print(
-            f"Warning: data dims Acc={mod_dims[0]} Gyro={mod_dims[1]} "
-            f"but args Acc={args.acc_dim} Gyro={args.gyro_dim}. Using data dims."
-        )
-        args.acc_dim, args.gyro_dim = mod_dims
+    mismatches = []
+    for name, actual_dim in zip(modalities, mod_dims):
+        attr = f"{name.lower()}_dim"
+        arg_dim = getattr(args, attr, None)
+        if arg_dim != actual_dim:
+            mismatches.append(f"{name}={actual_dim} (arg {attr}={arg_dim})")
+            setattr(args, attr, actual_dim)
+    if mismatches:
+        print("Warning: data mod_dims differ from args: " + ", ".join(mismatches)
+              + ". Using data dims.")
     if meta["num_classes"] != args.num_classes:
         args.num_classes = int(meta["num_classes"])
 
@@ -93,9 +106,10 @@ def main():
     )
 
     mw_str = "_".join(f"{w:.1f}" for w in args.modality_weights)
+    dataset_label = "mHealth" if args.dataset == "mhealth" else "UCI_HAR"
     file_name = os.path.join(
         results_dir,
-        f"Hybrid_UCI_HAR_{args.fusion_mode}_Top_{args.num_select_modalities}_"
+        f"Hybrid_{dataset_label}_{args.fusion_mode}_Top_{args.num_select_modalities}_"
         f"ShapCommRec_{mw_str}_Client_{args.client_select}_"
         f"{args.client_select_ratio:.1f}.npz",
     )

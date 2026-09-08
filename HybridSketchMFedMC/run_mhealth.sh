@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ---------------------------------------------------------------
+# mHealth hybrid: SketchFusionB4 fusion + FetchSGD gradient sketch
+# + MFedMC client/modality selection (4 modalities: Acc/Gyro/Mag/ECG).
+#
+# Extra args are forwarded to main.py, e.g.:
+#   ./HybridSketchMFedMC/run_mhealth.sh --client_select random
+#   ./HybridSketchMFedMC/run_mhealth.sh --num_select_modalities 1
+#   ./HybridSketchMFedMC/run_mhealth.sh --fusion_mode sum
+#   (sum = IndependentCompression4 additive fusion; sketch = SketchFusionB4)
+#
+# Requires: datasets/mhealth_mm/data.npz (see prepare_mhealth_mm.py).
+# ---------------------------------------------------------------
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "${HERE}/.." && pwd)"
+DATA_PATH="${DATA_PATH:-${ROOT}/datasets/mhealth_mm}"
+
+if [[ -x "${ROOT}/MFedMC/.venv/bin/python" ]]; then
+  PYTHON="${ROOT}/MFedMC/.venv/bin/python"
+else
+  PYTHON="${PYTHON:-python3}"
+fi
+
+cd "${ROOT}"
+exec "${PYTHON}" "${HERE}/main.py" \
+  --dataset mhealth \
+  --dataset_dir "${DATA_PATH}" \
+  --num_classes 12 \
+  --num_clients 10 \
+  --dirichlet_alpha 0.1 \
+  --acc_dim 177 \
+  --gyro_dim 118 \
+  --mag_dim 118 \
+  --ecg_dim 43 \
+  --feat_dim 512 \
+  --sketch_r 2 \
+  --sketch_c 128 \
+  --mm_dropout 0.3 \
+  --num_epochs 85 \
+  --local_epochs 10 \
+  --local_batch_size -1 \
+  --virtual_momentum 0.9 \
+  --error_type virtual \
+  --mode sketch \
+  --k 20000 \
+  --num_rows 3 \
+  --num_cols 5000 \
+  --lr_scale 0.01 \
+  --pivot_epoch 20 \
+  --num_blocks 1 \
+  --fusion_mode sketch \
+  --client_select loss \
+  --client_select_ratio 0.5 \
+  --num_select_modalities 2 \
+  --device cuda \
+  "$@"

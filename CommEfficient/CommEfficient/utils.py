@@ -122,7 +122,7 @@ def parse_args(default_lr=None):
     parser.add_argument("--mode", choices=modes, default="sketch")
     parser.add_argument("--tensorboard", dest="use_tensorboard",
                         action="store_true")
-    parser.add_argument("--seed", type=int, default=21)
+    parser.add_argument("--seed", type=int, default=42)
 
 
 

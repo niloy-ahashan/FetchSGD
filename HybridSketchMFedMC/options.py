@@ -9,18 +9,45 @@ def args_parser():
     )
 
     parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--seed", type=int, default=21)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--dataset",
+        choices=["uci_har", "mhealth"],
+        default="uci_har",
+        help="Which prepared feature cache to load. "
+        "uci_har: Acc/Gyro (2 modalities). mhealth: Acc/Gyro/Mag/ECG (4 modalities).",
+    )
     parser.add_argument(
         "--dataset_dir",
         type=str,
         default="",
-        help="Directory with data.npz (default: <repo>/datasets/uci_har_mm).",
+        help="Directory with data.npz (default: <repo>/datasets/uci_har_mm or "
+        "<repo>/datasets/mhealth_mm, matching --dataset).",
     )
-    parser.add_argument("--num_classes", type=int, default=6)
+    parser.add_argument(
+        "--num_classes",
+        type=int,
+        default=None,
+        help="Defaults to 6 for --dataset uci_har, 12 for --dataset mhealth.",
+    )
     parser.add_argument("--num_clients", type=int, default=10)
     parser.add_argument("--dirichlet_alpha", type=float, default=0.1)
-    parser.add_argument("--acc_dim", type=int, default=348)
-    parser.add_argument("--gyro_dim", type=int, default=213)
+    parser.add_argument(
+        "--acc_dim", type=int, default=None,
+        help="Defaults to 348 (uci_har) or 177 (mhealth).",
+    )
+    parser.add_argument(
+        "--gyro_dim", type=int, default=None,
+        help="Defaults to 213 (uci_har) or 118 (mhealth).",
+    )
+    parser.add_argument(
+        "--mag_dim", type=int, default=None,
+        help="mhealth only. Defaults to 118.",
+    )
+    parser.add_argument(
+        "--ecg_dim", type=int, default=None,
+        help="mhealth only. Defaults to 43.",
+    )
     parser.add_argument("--feat_dim", type=int, default=512)
     parser.add_argument("--mm_dropout", type=float, default=0.3)
     parser.add_argument("--sketch_r", type=int, default=4)
@@ -123,8 +150,24 @@ def args_parser():
     )
 
     args = parser.parse_args()
+
+    _DATASET_DEFAULTS = {
+        "uci_har": {"num_classes": 6, "acc_dim": 348, "gyro_dim": 213},
+        "mhealth": {
+            "num_classes": 12,
+            "acc_dim": 177,
+            "gyro_dim": 118,
+            "mag_dim": 118,
+            "ecg_dim": 43,
+        },
+    }
+    for field, default in _DATASET_DEFAULTS[args.dataset].items():
+        if getattr(args, field) is None:
+            setattr(args, field, default)
+
     if not args.dataset_dir:
         here = os.path.abspath(os.path.dirname(__file__))
         repo = os.path.abspath(os.path.join(here, ".."))
-        args.dataset_dir = os.path.join(repo, "datasets", "uci_har_mm")
+        subdir = "uci_har_mm" if args.dataset == "uci_har" else "mhealth_mm"
+        args.dataset_dir = os.path.join(repo, "datasets", subdir)
     return args
