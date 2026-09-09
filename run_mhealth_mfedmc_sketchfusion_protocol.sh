@@ -39,7 +39,7 @@ exec "${PYTHON}" main.py \
   --mag_dim 118 \
   --ecg_dim 43 \
   --iterations 100 \
-  --local_epochs 5 \
+  --local_epochs 10 \
   --top_shap 2 \
   --client_select_ratio 0.2 \
   --train_ratio 1.0 \

@@ -39,7 +39,7 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --sketch_r 2 \
   --sketch_c 128 \
   --mm_dropout 0.3 \
-  --num_epochs 85 \
+  --num_epochs 100 \
   --local_epochs 10 \
   --local_batch_size -1 \
   --virtual_momentum 0.9 \
@@ -47,13 +47,13 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --mode sketch \
   --k 20000 \
   --num_rows 3 \
-  --num_cols 5000 \
+  --num_cols 10000 \
   --lr_scale 0.01 \
-  --pivot_epoch 20 \
+  --pivot_epoch 25 \
   --num_blocks 1 \
   --fusion_mode sketch \
   --client_select loss \
-  --client_select_ratio 0.5 \
+  --client_select_ratio 0.2 \
   --num_select_modalities 2 \
   --device cuda \
   "$@"
