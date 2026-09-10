@@ -187,6 +187,8 @@ def worker_loop(input_model, ps_weights, client_weights, client_errors,
                 local_ps_weights[:] = original_ps_weights[:]
 
             else:
+                n_local = max(1, int(round(float(
+                    getattr(args, "mm_local_epochs", 1.0) or 1.0))))
                 # for all non-fedavg modes, we just do a single step
                 if args.do_test:
                     # daniel says don't commit debugging code but i don't want to type this out everytime 
@@ -194,6 +196,37 @@ def worker_loop(input_model, ps_weights, client_weights, client_errors,
                         g, results = torch.ones(args.grad_size).to(args.device), tuple(1.0 for _ in range(args.num_results_train))
                     else:
                         g, results = torch.ones(args.grad_size).to(args.device), tuple(1.0 for _ in range(args.num_results_val))
+                elif is_train and n_local > 1:
+                    # Local SGD, then one compressed upload (FetchSGD
+                    # round count is unchanged).
+                    original_ps_weights = local_ps_weights.clone()
+                    lr = fedavg_lr.to(args.device)
+                    n_ex = batch[1].size(0)
+                    accum_results = None
+                    grad_sum = torch.zeros(
+                        args.grad_size, device=args.device)
+                    for _ in range(n_local):
+                        g_uncomp, results = process_batch(
+                                batch, model, local_ps_weights,
+                                client_weights,
+                                client_errors, client_velocities,
+                                compute_loss_train, compute_loss_val,
+                                args, compress=False,
+                            )
+                        if accum_results is None:
+                            accum_results = list(results)
+                        else:
+                            for ri in range(len(accum_results)):
+                                accum_results[ri] += results[ri]
+                        g_avg = g_uncomp / n_ex
+                        local_ps_weights -= g_avg * lr
+                        grad_sum += g_avg
+                    results = tuple(r / n_local for r in accum_results)
+                    g_mean = grad_sum / n_local
+                    set_param_vec(model, original_ps_weights)
+                    g = _compress_grad(g_mean, model, args)
+                    g = g * n_ex
+                    local_ps_weights[:] = original_ps_weights[:]
                 else:
                     g, results = process_batch(
                             batch, model, local_ps_weights, client_weights,
@@ -213,7 +246,8 @@ def worker_loop(input_model, ps_weights, client_weights, client_errors,
 
 def process_batch(batch, model, ps_weights, client_weights,
                   client_errors, client_velocities,
-                  compute_loss_train, compute_loss_val, args):
+                  compute_loss_train, compute_loss_val, args,
+                  compress=True):
         client_indices = batch[0]
         is_train = client_indices[0] != -1
         batch = batch[1:]
@@ -248,16 +282,19 @@ def process_batch(batch, model, ps_weights, client_weights,
                 error = client_errors[client_id].to(args.device)
 
             results, transmit = local_step(model, velocity, error, batch,
-                                           compute_loss_train, args)
+                                           compute_loss_train, args,
+                                           compress=compress)
         else:
             model.eval()
             results = forward_grad(model, batch, compute_loss_val, args,
                                    compute_grad=False)
         return transmit, results
 
-def local_step(model, velocity, error, batch, compute_loss, args):
+def local_step(model, velocity, error, batch, compute_loss, args,
+               compress=True):
     # g is a (possibly compressed) gradient
-    g, results = forward_grad(model, batch, compute_loss, args)
+    g, results = forward_grad(model, batch, compute_loss, args,
+                              compress=compress)
 
     # locally, we need to deal with the sum of gradients across
     # examples, since we will torch.distributed.reduce the to_transmits,
@@ -322,7 +359,99 @@ def get_new_worker_weights(ps_weights, worker_weights, args):
 
 
 
-def forward_grad(model, batch, compute_loss, args, compute_grad=True):
+def _compress_grad(grad, model, args, compute_grad=True):
+    """Count-Sketch (or identity) a dense gradient vector."""
+    if args.mode != "sketch":
+        return grad
+
+    is_mm = type(model).__name__ == "MultiModalNet"
+    use_sep = getattr(args, "mm_sketch_separated", False) and is_mm
+    use_tri = getattr(args, "mm_sketch_fusion_tri", False) and is_mm and not use_sep
+    use_pair = (getattr(args, "mm_sketch_fusion", False) and is_mm
+                and not use_tri and not use_sep)
+
+    if use_sep:
+        if not hasattr(model, "_fed_mm_sep_index_maps"):
+            model._fed_mm_sep_index_maps = get_index_maps(
+                args, args.device
+            )
+        if _grad_debug_counter[0] < 5:
+            _print_grad_stats(grad, _grad_debug_counter[0])
+            _grad_debug_counter[0] += 1
+        g = sketch_modality_separated(
+            grad,
+            model._fed_mm_sep_index_maps,
+            num_cols=args.num_cols,
+            num_rows=args.num_rows,
+            num_blocks=args.num_blocks,
+            device=args.device,
+        )
+        if compute_grad and args.max_grad_norm is not None:
+            g = clip_grad(args.max_grad_norm, g)
+        return g
+
+    if use_tri:
+        if not hasattr(model, "_fed_mm_sketch_masks_tri"):
+            model._fed_mm_sketch_masks_tri = (
+                build_multimodal_sketch_masks_triple(model, args.device)
+            )
+        masks = model._fed_mm_sketch_masks_tri
+        if _grad_debug_counter[0] < 5:
+            _print_grad_stats(grad, _grad_debug_counter[0])
+            _grad_debug_counter[0] += 1
+
+        def _sketch_factory_tri():
+            return CSVecFed(
+                d=args.grad_size,
+                c=args.num_cols,
+                r=args.num_rows,
+                device=args.device,
+                numBlocks=args.num_blocks,
+            )
+
+        g = sketch_multimodal_fused_triple(grad, _sketch_factory_tri, masks)
+        if compute_grad and args.max_grad_norm is not None:
+            g = clip_grad(args.max_grad_norm, g)
+        return g
+
+    if use_pair:
+        if not hasattr(model, "_fed_mm_sketch_masks"):
+            model._fed_mm_sketch_masks = build_multimodal_sketch_masks(
+                model, args.device
+            )
+        masks = model._fed_mm_sketch_masks
+        if _grad_debug_counter[0] < 5:
+            _print_grad_stats(grad, _grad_debug_counter[0])
+            _grad_debug_counter[0] += 1
+
+        def _sketch_factory():
+            return CSVecFed(
+                d=args.grad_size,
+                c=args.num_cols,
+                r=args.num_rows,
+                device=args.device,
+                numBlocks=args.num_blocks,
+            )
+
+        g = sketch_multimodal_fused(grad, _sketch_factory, masks)
+        if compute_grad and args.max_grad_norm is not None:
+            g = clip_grad(args.max_grad_norm, g)
+        return g
+
+    sketch = CSVecFed(d=args.grad_size, c=args.num_cols,
+                      r=args.num_rows, device=args.device,
+                      numBlocks=args.num_blocks)
+    if _grad_debug_counter[0] < 5:
+        _print_grad_stats(grad, _grad_debug_counter[0])
+        _grad_debug_counter[0] += 1
+    sketch.accumulateVec(grad)
+    if compute_grad and args.max_grad_norm is not None:
+        sketch = clip_grad(args.max_grad_norm, sketch)
+    return sketch.table
+
+
+def forward_grad(model, batch, compute_loss, args, compute_grad=True,
+                 compress=True):
 
     print_counter = 0
 
@@ -401,155 +530,9 @@ def forward_grad(model, batch, compute_loss, args, compute_grad=True):
     # print("----")
     
     # compress the gradient if needed
-    if args.mode == "sketch":
-        is_mm = type(model).__name__ == "MultiModalNet"
-        use_sep = getattr(args, "mm_sketch_separated", False) and is_mm
-        use_tri = getattr(args, "mm_sketch_fusion_tri", False) and is_mm and not use_sep
-        use_pair = (getattr(args, "mm_sketch_fusion", False) and is_mm
-                    and not use_tri and not use_sep)
-
-        if use_sep:
-            if not hasattr(model, "_fed_mm_sep_index_maps"):
-                model._fed_mm_sep_index_maps = get_index_maps(
-                    args, args.device
-                )
-
-            if _grad_debug_counter[0] < 5:
-                _print_grad_stats(grad, _grad_debug_counter[0])
-                _grad_debug_counter[0] += 1
-
-            g = sketch_modality_separated(
-                grad,
-                model._fed_mm_sep_index_maps,
-                num_cols=args.num_cols,
-                num_rows=args.num_rows,
-                num_blocks=args.num_blocks,
-                device=args.device,
-            )
-
-            if compute_grad and args.max_grad_norm is not None:
-                g = clip_grad(args.max_grad_norm, g)
-        elif use_tri:
-            if not hasattr(model, "_fed_mm_sketch_masks_tri"):
-                model._fed_mm_sketch_masks_tri = (
-                    build_multimodal_sketch_masks_triple(model, args.device)
-                )
-            masks = model._fed_mm_sketch_masks_tri
-
-            if _grad_debug_counter[0] < 5:
-                _print_grad_stats(grad, _grad_debug_counter[0])
-                _grad_debug_counter[0] += 1
-
-            def _sketch_factory_tri():
-                s = CSVecFed(
-                    d=args.grad_size,
-                    c=args.num_cols,
-                    r=args.num_rows,
-                    device=args.device,
-                    numBlocks=args.num_blocks,
-                )
-                return s
-
-            g = sketch_multimodal_fused_triple(grad, _sketch_factory_tri, masks)
-
-            if compute_grad and args.max_grad_norm is not None:
-                g = clip_grad(args.max_grad_norm, g)
-        elif use_pair:
-            if not hasattr(model, "_fed_mm_sketch_masks"):
-                model._fed_mm_sketch_masks = build_multimodal_sketch_masks(
-                    model, args.device
-                )
-            masks = model._fed_mm_sketch_masks
-
-            if _grad_debug_counter[0] < 5:
-                _print_grad_stats(grad, _grad_debug_counter[0])
-                _grad_debug_counter[0] += 1
-
-            def _sketch_factory():
-                s = CSVecFed(
-                    d=args.grad_size,
-                    c=args.num_cols,
-                    r=args.num_rows,
-                    device=args.device,
-                    numBlocks=args.num_blocks,
-                )
-                return s
-
-            g = sketch_multimodal_fused(grad, _sketch_factory, masks)
-
-            if compute_grad and args.max_grad_norm is not None:
-                g = clip_grad(args.max_grad_norm, g)
-        else:
-            sketch = CSVecFed(d=args.grad_size, c=args.num_cols,
-                r=args.num_rows, device=args.device,
-                numBlocks=args.num_blocks)
-            
-            #Sketch for MN:
-            # sketch = MN(d=args.grad_size, c=args.num_cols,
-            #         r=args.num_rows, device=args.device,
-            #         numBlocks=args.num_blocks,
-            #         use_mn=args.use_mn,
-            #         m=args.mn_num_fake_items)
-
-            if _grad_debug_counter[0] < 5:
-                _print_grad_stats(grad, _grad_debug_counter[0])
-                _grad_debug_counter[0] += 1
-
-            sketch.accumulateVec(grad)
-
-
-            # # Measure noise after accumulating gradients
-            # if args.use_mn:
-            #     measured_noise = sketch.measure_noise()
-
-            # --- Debug: Compare CM sketch table vs actual gradient ---
-
-            # if print_counter < 1:
-
-            #     # Actual flattened gradient (the input to sketch)
-            #     actual_grad = grad.detach().cpu()
-
-            #     # Estimated gradient recovered from sketch
-            #     estimated_grad = sketch.unSketch(k=args.k).detach().cpu()
-
-            #     # For safe indexing
-            #     n = actual_grad.numel()
-
-            #     # Print first 10
-            #     print("\n--- First 10 gradients ---")
-            #     for i in range(10):
-            #         print(f"Index {i:6d}: Actual={actual_grad[i]:.6e}, Estimated={estimated_grad[i]:.6e}")
-
-            #     # Print last 10
-            #     print("\n--- Last 10 gradients ---")
-            #     for i in range(n-10, n):
-            #         print(f"Index {i:6d}: Actual={actual_grad[i]:.6e}, Estimated={estimated_grad[i]:.6e}")
-
-            #     # Optional: check global errors
-            #     abs_error = torch.abs(actual_grad - estimated_grad)
-            #     print(f"\nMean abs error: {abs_error.mean().item():.6e}")
-            #     print(f"Max abs error: {abs_error.max().item():.6e}")
-
-            #     print_counter += 1
-
-
-
-            # gradient clipping
-            if compute_grad and args.max_grad_norm is not None:
-                sketch = clip_grad(args.max_grad_norm, sketch)
-            g = sketch.table
-    elif args.mode == "true_topk":
-        g = grad
-    elif args.mode == "local_topk":
-        # ideally we'd return the compressed version of the gradient,
-        # i.e. _topk(grad, k=args.k). However, for sketching we do momentum
-        # in the sketch, whereas for topk we do momentum before taking topk
-        # so we have to return an inconsistent quantity here
-        g = grad
-    elif args.mode == "fedavg":
-        # logic for doing fedavg happens in process_batch
-        g = grad
-    elif args.mode == "uncompressed":
+    if compress:
+        g = _compress_grad(grad, model, args, compute_grad=compute_grad)
+    else:
         g = grad
 
     return g, results

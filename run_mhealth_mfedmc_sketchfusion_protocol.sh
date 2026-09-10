@@ -38,7 +38,7 @@ exec "${PYTHON}" main.py \
   --gyro_dim 118 \
   --mag_dim 118 \
   --ecg_dim 43 \
-  --iterations 100 \
+  --iterations 200 \
   --local_epochs 10 \
   --top_shap 2 \
   --client_select_ratio 0.2 \

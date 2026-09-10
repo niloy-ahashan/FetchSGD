@@ -275,10 +275,11 @@ def parse_args(default_lr=None):
         "--mm_local_epochs",
         type=float,
         default=1.0,
-        help="Multimodal only: multiply federated optimizer steps per "
-             "display epoch (>=1). Restarts the train loader each pass so "
-             "you get more local work per round; LR schedule divisor scales "
-             "by the same factor (comparable to PMFH local epochs).",
+        help="Multimodal only: local SGD epochs on each participating "
+             "client before one compressed upload. Does not change the "
+             "number of communication rounds per epoch (that follows "
+             "original CommEfficient/FetchSGD: steps_per_epoch). "
+             "1 = one local gradient, then upload (FetchSGD default).",
     )
     parser.add_argument(
         "--skip_map",

@@ -45,7 +45,7 @@ def args_parser():
     parser.add_argument("--gyro_dim", type=int, default=213)
     parser.add_argument("--hidden", type=int, default=128)
     parser.add_argument("--mm_dropout", type=float, default=0.3)
-    parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--batch_size", type=int, default=32)
 
     parser.add_argument(

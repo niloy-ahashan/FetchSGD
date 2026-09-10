@@ -32,7 +32,7 @@ python3 CommEfficient/CommEfficient/mm_train_independent.py \
   --missing_loss_weight 0.0 \
   --missing_prob 0.0 \
   --skip_map \
-  --mm_local_epochs 10 \
+  --mm_local_epochs 1 \
   --local_batch_size -1 \
   --local_momentum 0.0 \
   --virtual_momentum 0.9 \
@@ -44,9 +44,9 @@ python3 CommEfficient/CommEfficient/mm_train_independent.py \
   --share_ps_gpu \
   --k 20000 \
   --num_rows 3 \
-  --num_cols 5000 \
+  --num_cols 10000 \
   --lr_scale 0.1 \
   --pivot_epoch 6 \
   --num_blocks 1 \
-  --num_epochs 19 \
+  --num_epochs 21 \
   --device cuda

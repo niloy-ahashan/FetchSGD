@@ -482,13 +482,11 @@ class FedOptimizer(torch.optim.Optimizer):
 
         lr = self.get_lr()
 
-        # update g_lr so the model can use it next time for fedavg
-        if self.args.mode == "fedavg":
-            if isinstance(lr, torch.Tensor):
-                lr = lr.item()
-            lr = float(lr)
-
-            g_lr[:] = lr
+        # Workers use g_lr for FedAvg and for mm_local_epochs SGD.
+        if isinstance(lr, torch.Tensor):
+            g_lr[:] = float(lr.reshape(-1)[0].item())
+        else:
+            g_lr[:] = float(lr)
 
         weight_update, new_Vvelocity, new_Verror = get_server_update(
                 g_minibatch_gradient,

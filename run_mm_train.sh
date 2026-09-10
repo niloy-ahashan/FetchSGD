@@ -14,7 +14,8 @@ set -euo pipefail
 # 10 clients with 5 workers/round ≈ PMFH's num_users=10, frac=0.5.
 #
 # Wall-time / local compute (vs PMFH’s many local epochs × large batches):
-#   • --mm_local_epochs  >1  → multiple FedSampler passes per display epoch
+#   • --mm_local_epochs  >1  → extra local SGD on each client, then one upload
+#     (communication rounds per epoch still follow FetchSGD steps_per_epoch)
 #   • --num_epochs       ↑   → more federated rounds
 #   • --local_batch_size  N>0 (e.g. 32–128) → spe = ceil(N_train / (N * num_workers)),
 #     more steps/epoch than local_batch_size=-1 (full client batch); tune for VRAM.

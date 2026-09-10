@@ -285,11 +285,11 @@ def train(model, opt, lr_scheduler, train_loader, test_loader,
             map_time = timer()
 
         try:
-            rounded_down = round(download_mb)
+            rounded_down = download_mb
         except Exception:
             rounded_down = np.nan
         try:
-            rounded_up = round(upload_mb)
+            rounded_up = upload_mb
         except Exception:
             rounded_up = np.nan
 
@@ -400,68 +400,60 @@ def run_batches(model, opt, lr_scheduler, loader,
         client_upload = torch.zeros(num_clients)
         spe = steps_per_epoch(args.local_batch_size, loader.dataset,
                               args.num_workers)
-        mle = max(float(getattr(args, "mm_local_epochs", 1.0)), 1e-8)
-        step_limit = spe * epoch_fraction * mle
+        # Same round count as original CommEfficient cv_train.py:
+        # i > spe * epoch_fraction. mm_local_epochs is local SGD only.
+        for i, batch in enumerate(loader):
+            if i > spe * epoch_fraction:
+                break
 
-        i = 0
-        done = False
-        while not done:
-            for batch in loader:
-                if i > step_limit:
-                    done = True
+            opt.step()
+            if lr_scheduler is not None:
+                lr_scheduler.step()
+
+            if args.local_batch_size == -1:
+                expected = args.num_workers
+                if torch.unique(batch[0]).numel() < expected:
+                    msg = "SKIPPING BATCH: NOT ENOUGH CLIENTS ({} < {})"
+                    print(msg.format(torch.unique(batch[0]).numel(),
+                                      expected))
+                    continue
+            else:
+                expected_numel = args.num_workers * args.local_batch_size
+                if batch[0].numel() < expected_numel:
+                    msg = "SKIPPING BATCH: NOT ENOUGH DATA ({} < {})"
+                    print(msg.format(batch[0].numel(), expected_numel))
+                    continue
+
+            loss, acc, download, upload = model(batch)
+            if np.any(np.isnan(loss)):
+                print(f"NAN LOSS ({np.mean(loss)}), TERMINATING")
+                return np.nan, np.nan, np.nan, np.nan
+
+            client_download += download
+            client_upload += upload
+            losses.extend(loss)
+            accs.extend(acc)
+
+            if comm_tracker is not None and not comm_tracker.get(
+                    "exhausted", False):
+                batch_bytes = float(
+                    download.sum().item() + upload.sum().item())
+                batch_mb = batch_bytes / (1024.0 * 1024.0)
+                comm_tracker["used_mb"] += batch_mb
+                comm_tracker["train_batches"] += 1
+                if comm_tracker["used_mb"] >= comm_tracker["budget_mb"]:
+                    comm_tracker["exhausted"] = True
+                    print(
+                        "max_comm_megabytes: budget {:.6g} MiB reached "
+                        "(cumulative train comm {:.6f} MiB). "
+                        "Stopping further training batches.".format(
+                            comm_tracker["budget_mb"],
+                            comm_tracker["used_mb"],
+                        ))
                     break
 
-                opt.step()
-                if lr_scheduler is not None:
-                    lr_scheduler.step()
-
-                if args.local_batch_size == -1:
-                    expected = args.num_workers
-                    if torch.unique(batch[0]).numel() < expected:
-                        msg = "SKIPPING BATCH: NOT ENOUGH CLIENTS ({} < {})"
-                        print(msg.format(torch.unique(batch[0]).numel(),
-                                          expected))
-                        continue
-                else:
-                    expected_numel = args.num_workers * args.local_batch_size
-                    if batch[0].numel() < expected_numel:
-                        msg = "SKIPPING BATCH: NOT ENOUGH DATA ({} < {})"
-                        print(msg.format(batch[0].numel(), expected_numel))
-                        continue
-
-                loss, acc, download, upload = model(batch)
-                if np.any(np.isnan(loss)):
-                    print(f"NAN LOSS ({np.mean(loss)}), TERMINATING")
-                    return np.nan, np.nan, np.nan, np.nan
-
-                client_download += download
-                client_upload += upload
-                losses.extend(loss)
-                accs.extend(acc)
-                i += 1
-
-                if comm_tracker is not None and not comm_tracker.get(
-                        "exhausted", False):
-                    batch_bytes = float(
-                        download.sum().item() + upload.sum().item())
-                    batch_mb = batch_bytes / (1024.0 * 1024.0)
-                    comm_tracker["used_mb"] += batch_mb
-                    comm_tracker["train_batches"] += 1
-                    if comm_tracker["used_mb"] >= comm_tracker["budget_mb"]:
-                        comm_tracker["exhausted"] = True
-                        done = True
-                        print(
-                            "max_comm_megabytes: budget {:.6g} MiB reached "
-                            "(cumulative train comm {:.6f} MiB). "
-                            "Stopping further training batches.".format(
-                                comm_tracker["budget_mb"],
-                                comm_tracker["used_mb"],
-                            ))
-                        break
-
-                if args.do_test:
-                    done = True
-                    break
+            if args.do_test:
+                break
     else:
         for batch in loader:
             if batch[0].numel() < args.valid_batch_size:
@@ -597,10 +589,8 @@ if __name__ == "__main__":
         spe = steps_per_epoch(
             args.local_batch_size, train_loader.dataset, args.num_workers,
         )
-        mle = max(float(getattr(args, "mm_local_epochs", 1.0)), 1e-8)
-        spe_lr = spe * mle
         lr_scheduler = LambdaLR(
-            opt, lr_lambda=lambda step: lr_schedule(step / spe_lr),
+            opt, lr_lambda=lambda step: lr_schedule(step / spe),
         )
     else:
         lr_scheduler = None
@@ -618,11 +608,11 @@ if __name__ == "__main__":
     _spe0 = steps_per_epoch(
         args.local_batch_size, train_loader.dataset, args.num_workers,
     )
-    _mle = max(float(getattr(args, "mm_local_epochs", 1.0)), 1e-8)
+    _mle = max(float(getattr(args, "mm_local_epochs", 1.0)), 1.0)
     print(
-        "Federated train: steps_per_epoch(spe)={:.0f}, mm_local_epochs={:.3g}, "
-        "LR divisor spe*mle={:.3g} (≈ max batches per full epoch before "
-        "last partial)".format(_spe0, _mle, _spe0 * _mle)
+        "Federated train: steps_per_epoch(spe)={:.0f} (CommEfficient "
+        "rounds/epoch; LR divisor=spe). mm_local_epochs={:.3g} is local "
+        "SGD per round, not extra uploads.".format(_spe0, _mle)
     )
 
     grad = get_grad(model, args)

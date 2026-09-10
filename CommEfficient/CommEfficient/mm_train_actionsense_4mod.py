@@ -220,10 +220,8 @@ if __name__ == "__main__":
         spe = steps_per_epoch(
             args.local_batch_size, train_loader.dataset, args.num_workers,
         )
-        mle = max(float(getattr(args, "mm_local_epochs", 1.0)), 1e-8)
-        spe_lr = spe * mle
         lr_scheduler = LambdaLR(
-            opt, lr_lambda=lambda step: lr_schedule(step / spe_lr),
+            opt, lr_lambda=lambda step: lr_schedule(step / spe),
         )
     else:
         lr_scheduler = None
@@ -240,10 +238,11 @@ if __name__ == "__main__":
     _spe0 = steps_per_epoch(
         args.local_batch_size, train_loader.dataset, args.num_workers,
     )
-    _mle = max(float(getattr(args, "mm_local_epochs", 1.0)), 1e-8)
+    _mle = max(float(getattr(args, "mm_local_epochs", 1.0)), 1.0)
     print(
-        "Federated train: steps_per_epoch(spe)={:.0f}, mm_local_epochs={:.3g}, "
-        "LR divisor spe*mle={:.3g}".format(_spe0, _mle, _spe0 * _mle)
+        "Federated train: steps_per_epoch(spe)={:.0f} (CommEfficient "
+        "rounds/epoch; LR divisor=spe). mm_local_epochs={:.3g} is local "
+        "SGD per round, not extra uploads.".format(_spe0, _mle)
     )
 
     grad = get_grad(model, args)

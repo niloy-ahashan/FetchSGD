@@ -39,7 +39,7 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --sketch_r 2 \
   --sketch_c 128 \
   --mm_dropout 0.3 \
-  --num_epochs 100 \
+  --num_epochs 210 \
   --local_epochs 10 \
   --local_batch_size -1 \
   --virtual_momentum 0.9 \
