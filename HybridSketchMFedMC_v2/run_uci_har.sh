@@ -2,14 +2,13 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------
-# UCI HAR hybrid: SketchFusionB fusion + FetchSGD gradient sketch
-# + MFedMC client/modality selection.
+# UCI HAR hybrid v2: FetchSGD engine (example-weighted gradient sketch)
+# + MFedMC client/modality selection. Independent of HybridSketchMFedMC/.
 #
 # Extra args are forwarded to main.py, e.g.:
-#   ./HybridSketchMFedMC/run_uci_har.sh --client_select random
-#   ./HybridSketchMFedMC/run_uci_har.sh --num_select_modalities 1
-#   ./HybridSketchMFedMC/run_uci_har.sh --fusion_mode sum
-#   (sum = IndependentCompression additive fusion; sketch = SketchFusionB)
+#   ./HybridSketchMFedMC_v2/run_uci_har.sh --upload_object delta --local_epochs 5
+#   ./HybridSketchMFedMC_v2/run_uci_har.sh --client_select random
+#   ./HybridSketchMFedMC_v2/run_uci_har.sh --fusion_mode sketch
 #
 # Requires: datasets/uci_har_mm/data.npz
 # ---------------------------------------------------------------
@@ -36,20 +35,23 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --sketch_r 2 \
   --sketch_c 128 \
   --mm_dropout 0.3 \
-  --num_epochs 21 \
+  --num_epochs 70 \
   --local_epochs 1 \
   --local_batch_size -1 \
+  --upload_object gradient \
+  --weight_decay 5e-4 \
   --virtual_momentum 0.9 \
   --error_type virtual \
   --mode sketch \
   --k 20000 \
   --num_rows 3 \
-  --num_cols 10000 \
+  --num_cols 5000 \
   --lr_scale 0.1 \
-  --pivot_epoch 6 \
+  --pivot_epoch 20 \
   --num_blocks 1 \
-  --fusion_mode sum \
+  --fusion_mode sketch \
   --client_select loss \
-  --client_select_ratio 1.0 \
-  --num_select_modalities 2 \
+  --client_select_ratio 0.5 \
+  --num_select_modalities 1 \
+  --device cuda \
   "$@"

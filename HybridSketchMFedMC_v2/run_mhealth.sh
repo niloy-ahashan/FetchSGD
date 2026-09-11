@@ -2,21 +2,19 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------
-# UCI HAR hybrid: SketchFusionB fusion + FetchSGD gradient sketch
-# + MFedMC client/modality selection.
+# mHealth hybrid v2: FetchSGD engine (example-weighted gradient sketch)
+# + MFedMC client/modality selection (4 modalities: Acc/Gyro/Mag/ECG).
 #
 # Extra args are forwarded to main.py, e.g.:
-#   ./HybridSketchMFedMC/run_uci_har.sh --client_select random
-#   ./HybridSketchMFedMC/run_uci_har.sh --num_select_modalities 1
-#   ./HybridSketchMFedMC/run_uci_har.sh --fusion_mode sum
-#   (sum = IndependentCompression additive fusion; sketch = SketchFusionB)
+#   ./HybridSketchMFedMC_v2/run_mhealth.sh --upload_object delta --local_epochs 10
+#   ./HybridSketchMFedMC_v2/run_mhealth.sh --fusion_mode sum
 #
-# Requires: datasets/uci_har_mm/data.npz
+# Requires: datasets/mhealth_mm/data.npz (see prepare_mhealth_mm.py).
 # ---------------------------------------------------------------
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${HERE}/.." && pwd)"
-DATA_PATH="${DATA_PATH:-${ROOT}/datasets/uci_har_mm}"
+DATA_PATH="${DATA_PATH:-${ROOT}/datasets/mhealth_mm}"
 
 if [[ -x "${ROOT}/MFedMC/.venv/bin/python" ]]; then
   PYTHON="${ROOT}/MFedMC/.venv/bin/python"
@@ -26,30 +24,36 @@ fi
 
 cd "${ROOT}"
 exec "${PYTHON}" "${HERE}/main.py" \
+  --dataset mhealth \
   --dataset_dir "${DATA_PATH}" \
-  --num_classes 6 \
+  --num_classes 12 \
   --num_clients 10 \
   --dirichlet_alpha 0.1 \
-  --acc_dim 348 \
-  --gyro_dim 213 \
+  --acc_dim 177 \
+  --gyro_dim 118 \
+  --mag_dim 118 \
+  --ecg_dim 43 \
   --feat_dim 512 \
   --sketch_r 2 \
   --sketch_c 128 \
   --mm_dropout 0.3 \
-  --num_epochs 21 \
+  --num_epochs 210 \
   --local_epochs 1 \
   --local_batch_size -1 \
+  --upload_object gradient \
+  --weight_decay 5e-4 \
   --virtual_momentum 0.9 \
   --error_type virtual \
   --mode sketch \
   --k 20000 \
   --num_rows 3 \
   --num_cols 10000 \
-  --lr_scale 0.1 \
-  --pivot_epoch 6 \
+  --lr_scale 0.01 \
+  --pivot_epoch 25 \
   --num_blocks 1 \
-  --fusion_mode sum \
+  --fusion_mode sketch \
   --client_select loss \
-  --client_select_ratio 1.0 \
+  --client_select_ratio 0.2 \
   --num_select_modalities 2 \
+  --device cuda \
   "$@"

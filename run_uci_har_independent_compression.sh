@@ -40,13 +40,13 @@ python3 CommEfficient/CommEfficient/mm_train_independent.py \
   --mode sketch \
   --num_clients 10 \
   --num_devices 1 \
-  --num_workers 5 \
+  --num_workers 10 \
   --share_ps_gpu \
   --k 20000 \
   --num_rows 3 \
-  --num_cols 10000 \
+  --num_cols 5000 \
   --lr_scale 0.1 \
-  --pivot_epoch 6 \
+  --pivot_epoch 10 \
   --num_blocks 1 \
-  --num_epochs 21 \
+  --num_epochs 35 \
   --device cuda

@@ -456,9 +456,6 @@ def run_batches(model, opt, lr_scheduler, loader,
                 break
     else:
         for batch in loader:
-            if batch[0].numel() < args.valid_batch_size:
-                print("SKIPPING VAL BATCH: TOO SMALL")
-                continue
             loss, acc = model(batch)
             losses.extend(loss)
             accs.extend(acc)
@@ -496,25 +493,19 @@ def get_data_loaders(args):
     )
 
     test_batch_size = args.valid_batch_size * args.num_workers
-    # drop_last: the last batch is often smaller than test_batch_size; the
-    # val loop skips any batch with fewer than valid_batch_size samples
-    # (batch[0] is client-id tensor of shape (B,) → numel()==B) to avoid
-    # FedModel._call_val failing when one shard cannot be split across
-    # num_workers processes.  drop_last omits that partial batch instead
-    # of printing "SKIPPING VAL BATCH: TOO SMALL" every epoch.
     n_te = len(test_dataset)
     test_loader = DataLoader(
         test_dataset,
         batch_size=test_batch_size,
         shuffle=False,
-        drop_last=True,
+        drop_last=False,
         num_workers=args.val_dataloader_workers,
         pin_memory=True,
     )
-    n_drop = n_te % test_batch_size
-    if n_drop:
-        print(f"Validation drop_last=True: omitting last {n_drop} test samples "
-              f"(evaluating {n_te - n_drop}/{n_te}; batch_size={test_batch_size})")
+    print(
+        f"Validation drop_last=False: evaluating all {n_te} test samples "
+        f"(batch_size={test_batch_size})"
+    )
 
     print(len(train_loader), len(test_loader))
     return train_loader, test_loader
