@@ -37,7 +37,7 @@ exec "${PYTHON}" main.py \
   --num_classes 6 \
   --acc_dim 348 \
   --gyro_dim 213 \
-  --iterations 35 \
+  --iterations 30 \
   --local_epochs 5 \
   --top_shap 1 \
   --client_select_ratio 0.5 \
