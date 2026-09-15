@@ -9,8 +9,8 @@ full gradient), unchanged from the original paper.
 
 Pipeline
 --------
-  1. FeaExtractor + FeaRefiner per modality  →  f'_img, f'_txt
-  2. Summation fusion                        →  fused = f'_img + f'_txt
+  1. FeaExtractor + FeaRefiner per modality  →  f'_acc, f'_gyro
+  2. Summation fusion                        →  fused = f'_acc + f'_gyro
   3. Integrator MLP                          →  H
   4. Classifier                              →  logits
 
@@ -18,11 +18,9 @@ Pipeline
       S(∇θ L)  — single CSVecFed over the full parameter vector
 """
 
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from .multimodal_net import FeaExtractor, FeaRefiner, CrossModalPredictor
+from .multimodal_net import FeaExtractor, FeaRefiner
 
 __all__ = ["IndependentCompression"]
 
@@ -36,25 +34,33 @@ class IndependentCompression(nn.Module):
     in the shared ``feat_dim`` space.  Compression is *independent*
     of fusion: it happens later, on the flattened gradient, via
     original FetchSGD.
+
+    For UCI HAR the two branches are accelerometer (``acc_dim``) and
+    gyroscope (``gyro_dim``).  ``img_dim`` / ``txt_dim`` are accepted
+    as aliases so older call sites still construct the same net.
     """
 
     def __init__(
         self,
-        img_dim=4096,
-        txt_dim=300,
+        acc_dim=None,
+        gyro_dim=None,
+        img_dim=None,
+        txt_dim=None,
         feat_dim=512,
         num_classes=10,
         dropout=0.5,
         **kwargs,
     ):
         super().__init__()
-        self.img_extractor = FeaExtractor(img_dim, feat_dim, dropout)
-        self.txt_extractor = FeaExtractor(txt_dim, feat_dim, dropout)
-        self.img_refiner = FeaRefiner(feat_dim)
-        self.txt_refiner = FeaRefiner(feat_dim)
+        if acc_dim is None:
+            acc_dim = 4096 if img_dim is None else img_dim
+        if gyro_dim is None:
+            gyro_dim = 300 if txt_dim is None else txt_dim
 
-        self.img_to_txt = CrossModalPredictor(feat_dim)
-        self.txt_to_img = CrossModalPredictor(feat_dim)
+        self.acc_extractor = FeaExtractor(acc_dim, feat_dim, dropout)
+        self.gyro_extractor = FeaExtractor(gyro_dim, feat_dim, dropout)
+        self.acc_refiner = FeaRefiner(feat_dim)
+        self.gyro_refiner = FeaRefiner(feat_dim)
 
         self.integrator = nn.Sequential(
             nn.Linear(feat_dim, feat_dim),
@@ -63,8 +69,6 @@ class IndependentCompression(nn.Module):
             nn.Linear(feat_dim, feat_dim),
         )
         self.classifier = nn.Linear(feat_dim, num_classes)
-
-        self._missing_loss = torch.tensor(0.0)
         self._init_weights()
 
     def _init_weights(self):
@@ -74,45 +78,25 @@ class IndependentCompression(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    def _extract_and_refine(self, img_feat, txt_feat, missing_prob=0.0):
-        f_img = self.img_extractor(img_feat)
-        f_txt = self.txt_extractor(txt_feat)
-
-        f_txt_hat = self.img_to_txt(f_img)
-        f_img_hat = self.txt_to_img(f_txt)
-        self._missing_loss = (
-            F.mse_loss(f_txt_hat, f_txt.detach())
-            + F.mse_loss(f_img_hat, f_img.detach())
-        )
-
-        if self.training and missing_prob > 0:
-            r = torch.rand(1).item()
-            if r < missing_prob / 2:
-                f_img = f_img_hat
-            elif r < missing_prob:
-                f_txt = f_txt_hat
-
-        c_img = self.img_refiner(f_img)
-        c_txt = self.txt_refiner(f_txt)
-        return f_img * c_img, f_txt * c_txt
+    def _extract_and_refine(self, acc_feat, gyro_feat):
+        f_acc = self.acc_extractor(acc_feat)
+        f_gyro = self.gyro_extractor(gyro_feat)
+        c_acc = self.acc_refiner(f_acc)
+        c_gyro = self.gyro_refiner(f_gyro)
+        return f_acc * c_acc, f_gyro * c_gyro
 
     @staticmethod
-    def _fuse(f_img_refined, f_txt_refined):
+    def _fuse(f_acc_refined, f_gyro_refined):
         """Summation fusion in the shared feature space."""
-        return f_img_refined + f_txt_refined
+        return f_acc_refined + f_gyro_refined
 
-    def extract_fused(self, img_feat, txt_feat):
-        f_img = self.img_extractor(img_feat)
-        f_txt = self.txt_extractor(txt_feat)
-        c_img = self.img_refiner(f_img)
-        c_txt = self.txt_refiner(f_txt)
-        fused = self._fuse(f_img * c_img, f_txt * c_txt)
+    def extract_fused(self, acc_feat, gyro_feat):
+        f_acc_r, f_gyro_r = self._extract_and_refine(acc_feat, gyro_feat)
+        fused = self._fuse(f_acc_r, f_gyro_r)
         return self.integrator(fused)
 
-    def forward(self, img_feat, txt_feat, missing_prob=0.0):
-        f_img_r, f_txt_r = self._extract_and_refine(
-            img_feat, txt_feat, missing_prob
-        )
-        fused = self._fuse(f_img_r, f_txt_r)
+    def forward(self, acc_feat, gyro_feat):
+        f_acc_r, f_gyro_r = self._extract_and_refine(acc_feat, gyro_feat)
+        fused = self._fuse(f_acc_r, f_gyro_r)
         H = self.integrator(fused)
         return self.classifier(H), H

@@ -240,6 +240,16 @@ def parse_args(default_lr=None):
                         help="Dimensionality of image features")
     parser.add_argument("--txt_dim", type=int, default=100,
                         help="Dimensionality of text features")
+    parser.add_argument(
+        "--acc_dim", type=int, default=None,
+        help="IndependentCompression: accelerometer feature dim "
+             "(falls back to --img_dim if unset)",
+    )
+    parser.add_argument(
+        "--gyro_dim", type=int, default=None,
+        help="IndependentCompression: gyroscope feature dim "
+             "(falls back to --txt_dim if unset)",
+    )
     parser.add_argument("--feat_dim", type=int, default=512,
                         help="Common latent feature dimension for fusion")
     parser.add_argument("--mm_dropout", type=float, default=0.5,

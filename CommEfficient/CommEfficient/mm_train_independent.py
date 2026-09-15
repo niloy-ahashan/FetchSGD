@@ -1,9 +1,10 @@
 """
 Independent Compression training entry.
 
-Summation fusion of the two modalities, then original FetchSGD Count
-Sketch of the full gradient (Rothchild et al.).  Does **not** enable
-``--mm_sketch_fusion`` / ``--mm_sketch_fusion_tri`` / ``--mm_sketch_separated``.
+Summation fusion of accelerometer + gyroscope features, then original
+FetchSGD Count Sketch of the full gradient (Rothchild et al.).  Does
+**not** enable ``--mm_sketch_fusion`` / ``--mm_sketch_fusion_tri`` /
+``--mm_sketch_separated``.
 
 Isolated from ``mm_train.py`` so existing MultiModalNet / SketchFusion
 runs are unchanged.
@@ -28,8 +29,6 @@ models.IndependentCompression = IndependentCompression
 from CommEfficient.utils import get_grad
 from fed_aggregator import FedModel, FedOptimizer
 from mm_train import (
-    compute_loss_multi_label,
-    compute_loss_single_label,
     get_data_loaders,
     train,
 )
@@ -43,6 +42,37 @@ from utils import (
 )
 
 import torch.multiprocessing as multiprocessing
+
+
+_ce_criterion = torch.nn.CrossEntropyLoss(reduction="mean")
+_bce_criterion = torch.nn.BCEWithLogitsLoss(reduction="mean")
+
+
+class _TopOneAccuracy(torch.nn.Module):
+    def forward(self, logits, target):
+        return (logits.max(dim=1)[1] == target).float().mean()
+
+
+_top1_acc = _TopOneAccuracy()
+
+
+def compute_loss_single_label(model, batch, args):
+    del args  # IC loss has no missing-modality / MFM terms
+    acc_feats, gyro_feats, targets = batch
+    pred, _H = model(acc_feats, gyro_feats)
+    loss = _ce_criterion(pred, targets)
+    accuracy = _top1_acc(pred, targets)
+    return loss, accuracy
+
+
+def compute_loss_multi_label(model, batch, args):
+    del args
+    acc_feats, gyro_feats, targets = batch
+    pred, _H = model(acc_feats, gyro_feats)
+    loss = _bce_criterion(pred, targets)
+    predicted = (torch.sigmoid(pred) > 0.5).float()
+    accuracy = (predicted == targets).float().mean()
+    return loss, accuracy
 
 
 def _warn_if_sketch_fusion_flags(args):
@@ -91,16 +121,18 @@ if __name__ == "__main__":
         args.num_classes = train_loader.dataset.mm_num_classes
     num_classes = args.num_classes
 
+    acc_dim = args.acc_dim if args.acc_dim is not None else args.img_dim
+    gyro_dim = args.gyro_dim if args.gyro_dim is not None else args.txt_dim
     model_config = {
-        "img_dim": args.img_dim,
-        "txt_dim": args.txt_dim,
+        "acc_dim": acc_dim,
+        "gyro_dim": gyro_dim,
         "feat_dim": args.feat_dim,
         "num_classes": num_classes,
         "dropout": args.mm_dropout,
     }
     print(f"IndependentCompression config: {model_config}")
     print(
-        "Fusion: summation (f'_img + f'_txt).  "
+        "Fusion: summation (f'_acc + f'_gyro).  "
         "Gradient compression: original FetchSGD Count Sketch."
     )
     model = IndependentCompression(**model_config)
