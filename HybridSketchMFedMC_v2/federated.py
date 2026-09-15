@@ -557,8 +557,8 @@ def run_federated(args, model, clients, global_test, modalities, device):
                 "train_acc": train_acc,
                 "test_loss": test_loss,
                 "test_acc": test_acc,
-                "down (MiB)": download_mb,
-                "up (MiB)": upload_mb,
+                "down (MB)": download_mb,
+                "up (MB)": upload_mb,
                 "total_time": timer.total_time,
             }
         )
