@@ -307,8 +307,8 @@ def train(model, opt, lr_scheduler, train_loader, test_loader,
             "train_acc": train_acc,
             "test_loss": test_loss,
             "test_acc": test_acc,
-            "down (MiB)": rounded_down,
-            "up (MiB)": rounded_up,
+            "down (MB)": rounded_down,
+            "up (MB)": rounded_up,
             "total_time": timer.total_time,
         }
         if map_val is not None:

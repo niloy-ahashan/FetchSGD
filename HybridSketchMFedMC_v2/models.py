@@ -11,17 +11,14 @@ by one of:
 The fused vector is decoded by the integrator MLP + classifier.
 Gradient communication is separate (FetchSGD) in either case.
 
-For two modalities the architecture matches CommEfficient SketchFusionB /
-IndependentCompression (including unused-at-zero-weight cross-modal
-predictors). For three or more modalities the layout matches
-SketchFusionB4 (no pairwise cross-modal heads).
+No pairwise cross-modal (MFM) heads: extract → refine → fuse for any
+number of modalities, matching IndependentCompression / SketchFusionB4.
 """
 
 from __future__ import annotations
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 SKETCH_HASH_SEED = 2147483647
@@ -51,19 +48,6 @@ class FeaRefiner(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(feat_dim, feat_dim),
             nn.Sigmoid(),
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class CrossModalPredictor(nn.Module):
-    def __init__(self, feat_dim):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(feat_dim, feat_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(feat_dim, feat_dim),
         )
 
     def forward(self, x):
@@ -105,15 +89,6 @@ class SketchFusionBNet(nn.Module):
         self.refiners = nn.ModuleList(
             [FeaRefiner(feat_dim) for _ in self.mod_dims]
         )
-
-        # Match two-modality SketchFusionB / IndependentCompression (MFM heads).
-        self.img_to_txt = None
-        self.txt_to_img = None
-        if self.n_mod == 2:
-            self.img_to_txt = CrossModalPredictor(feat_dim)
-            self.txt_to_img = CrossModalPredictor(feat_dim)
-
-        self._missing_loss = torch.tensor(0.0)
 
         if fusion_mode == "sketch":
             rng = torch.Generator().manual_seed(SKETCH_HASH_SEED)
@@ -161,25 +136,8 @@ class SketchFusionBNet(nn.Module):
         c = self.refiners[i](f)
         return f * c
 
-    def _extract_and_refine(self, mods, missing_prob=0.0):
+    def _extract_and_refine(self, mods):
         feats = [self.extractors[i](mods[i]) for i in range(self.n_mod)]
-
-        if self.n_mod == 2 and self.img_to_txt is not None:
-            f_txt_hat = self.img_to_txt(feats[0])
-            f_img_hat = self.txt_to_img(feats[1])
-            self._missing_loss = (
-                F.mse_loss(f_txt_hat, feats[1].detach())
-                + F.mse_loss(f_img_hat, feats[0].detach())
-            )
-            if self.training and missing_prob > 0:
-                r = torch.rand(1).item()
-                if r < missing_prob / 2:
-                    feats[0] = f_img_hat
-                elif r < missing_prob:
-                    feats[1] = f_txt_hat
-        else:
-            self._missing_loss = torch.zeros((), device=feats[0].device)
-
         return [feats[i] * self.refiners[i](feats[i]) for i in range(self.n_mod)]
 
     def _project(self, refined):
@@ -198,12 +156,12 @@ class SketchFusionBNet(nn.Module):
             raise RuntimeError("No modalities selected for fusion")
         return total
 
-    def forward(self, *mods, missing_prob=0.0, modality_mask=None):
+    def forward(self, *mods, modality_mask=None):
         if len(mods) == 1 and isinstance(mods[0], (list, tuple)):
             mods = tuple(mods[0])
         if len(mods) != self.n_mod:
             raise ValueError(f"expected {self.n_mod} modalities, got {len(mods)}")
-        refined = self._extract_and_refine(mods, missing_prob)
+        refined = self._extract_and_refine(mods)
         fused = self._fuse_refined(refined, modality_mask)
         H = self.integrator(fused)
         return self.classifier(H), H
@@ -233,12 +191,7 @@ def build_param_index_maps(model: SketchFusionBNet):
                 assigned = True
                 break
         if not assigned:
-            if name.startswith("img_to_txt"):
-                mod_idx[0].extend(pos)
-            elif name.startswith("txt_to_img"):
-                mod_idx[1].extend(pos)
-            else:
-                shared.extend(pos)
+            shared.extend(pos)
         offset += n
     return [torch.tensor(ix, dtype=torch.long) for ix in mod_idx], torch.tensor(
         shared, dtype=torch.long
