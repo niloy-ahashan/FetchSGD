@@ -9,7 +9,7 @@ def args_parser():
     )
 
     parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=46)
     parser.add_argument(
         "--dataset",
         choices=["uci_har", "mhealth"],

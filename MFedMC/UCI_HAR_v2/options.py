@@ -119,7 +119,10 @@ def args_parser():
         "--prefer-higher-loss",
         dest="prefer_higher_loss",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
+        help="Paper's Eq. (18) always selects the lowest-loss clients (default: "
+        "False). Pass --prefer-higher-loss to reproduce the old (pre-fix) "
+        "highest-loss selection for comparison.",
     )
     parser.add_argument(
         "--results_dir",

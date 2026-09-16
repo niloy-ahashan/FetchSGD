@@ -33,6 +33,17 @@ def round_upload_bytes(global_models, counts_per_modality) -> int:
     return total
 
 
+def round_download_bytes(global_models, num_clients) -> int:
+    """Bytes downloaded this round: every client re-initializes from every modality's
+    current global model, unconditionally (Algorithm 1's "Local Deploying" step —
+    unaffected by top-gamma/client selection, which only gates uploads). Constant across
+    rounds. Not defined/quantified in the paper; added here for this repo's own
+    upload-vs-download plots.
+    """
+    total_params = sum(count_parameters(m) for m in global_models)
+    return num_clients * total_params * BYTES_PER_FLOAT32
+
+
 def _to_tensor_xy(client_data, device):
     data, target = client_data
     if len(target) == 0:
@@ -230,6 +241,7 @@ def run_local_training_round(
     client_idx_per_mod = [[] for _ in modalities]
     client_loss = [[] for _ in modalities]
     client_par = [[] for _ in modalities]
+    client_samples = [[] for _ in modalities]
     shap_values = []
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -264,6 +276,7 @@ def run_local_training_round(
                 client_idx_per_mod[mod_idx].append(cidx)
                 client_par[mod_idx].append(count_parameters(client_model))
                 client_loss[mod_idx].append(avg_loss)
+                client_samples[mod_idx].append(n_local)
 
         shap_value = calculate_shapley_values_via_fusion(
             client_data_train[client], local_models, modalities, device=device
@@ -272,7 +285,7 @@ def run_local_training_round(
 
     shap_values = normalization(np.array(shap_values))
     model_size = normalization(np.array(client_par).T)
-    return client_models, client_idx_per_mod, client_loss, shap_values, model_size
+    return client_models, client_idx_per_mod, client_loss, shap_values, model_size, client_samples
 
 
 def select_and_aggregate(
@@ -286,6 +299,7 @@ def select_and_aggregate(
     client_last_selected_round,
     client_models,
     client_idx_per_mod,
+    client_samples,
     global_models,
     active_indices,
 ):
@@ -335,7 +349,10 @@ def select_and_aggregate(
         picked_clients_global = [active_indices[i] for i in picked_clients]
         mapping = {c_idx: w_idx for w_idx, c_idx in enumerate(client_idx_per_mod[midx])}
         chosen_weight_indices = [mapping[c] for c in picked_clients_global if c in mapping]
-        gw, cnt = average_weights(client_models[midx], chosen_weight_indices, global_models[midx])
+        gw, cnt = average_weights(
+            client_models[midx], chosen_weight_indices, global_models[midx],
+            sample_counts=client_samples[midx],
+        )
         global_models[midx].load_state_dict(gw)
         counts.append(cnt)
     return np.array(counts), client_sel, mod_sel
@@ -383,6 +400,7 @@ def federated_learning(
     client_last_selected_round = np.full((num_clients,), -1)
     accuracy_matrix, modality_counts = [], []
     upload_bytes_per_round: list[int] = []
+    download_bytes_per_round: list[int] = []
     elapsed_seconds_per_round: list[float] = []
     test_acc_per_round: list[float] = []
     client_selected_rounds = []
@@ -391,7 +409,8 @@ def federated_learning(
     mod_acc_hdr = "  ".join(f"{m:>8}" for m in modalities)
     header = (
         f"{'iter':>4}  {'test_acc':>8}  {'fusion':>8}  {mod_acc_hdr}  "
-        f"{'up_MB':>10}  {'cum_up_MB':>10}  {'time_s':>10}"
+        f"{'up_MB':>10}  {'cum_up_MB':>10}  {'down_MB':>10}  {'cum_down_MB':>10}  "
+        f"{'time_s':>10}"
     )
     train_start = time.perf_counter()
     print(header)
@@ -401,7 +420,7 @@ def federated_learning(
         client_list = list(client_data_train.keys())[:num_clients]
         active_indices = list(range(len(client_list)))
 
-        client_models, client_idx_per_mod, client_loss, shap_values, model_size = (
+        client_models, client_idx_per_mod, client_loss, shap_values, model_size, client_samples = (
             run_local_training_round(
                 client_list,
                 global_models,
@@ -423,6 +442,7 @@ def federated_learning(
             client_last_selected_round,
             client_models,
             client_idx_per_mod,
+            client_samples,
             global_models,
             active_indices,
         )
@@ -431,6 +451,8 @@ def federated_learning(
         modality_selected_rounds.append(mod_sel)
         ub_round = round_upload_bytes(global_models, counts)
         upload_bytes_per_round.append(ub_round)
+        db_round = round_download_bytes(global_models, len(client_list))
+        download_bytes_per_round.append(db_round)
         accs = evaluate_round(
             client_list, client_data_train, client_data_test, global_models, modalities, device
         )
@@ -440,12 +462,14 @@ def federated_learning(
         mean_fusion = float(np.nanmean(accs[:, -1]))
         mean_mod = np.nanmean(accs[:, :-1], axis=0)
         cum_up = int(np.sum(upload_bytes_per_round))
+        cum_down = int(np.sum(download_bytes_per_round))
         elapsed_s = time.perf_counter() - train_start
         elapsed_seconds_per_round.append(elapsed_s)
         mod_acc = "  ".join(f"{a:8.2f}" for a in mean_mod)
         print(
             f"{ite + 1:4d}  {test_acc:8.4f}  {mean_fusion:8.2f}  {mod_acc}  "
-            f"{ub_round / 1e6:10.6f}  {cum_up / 1e6:10.6f}  {elapsed_s:10.1f}"
+            f"{ub_round / 1e6:10.6f}  {cum_up / 1e6:10.6f}  "
+            f"{db_round / 1e6:10.6f}  {cum_down / 1e6:10.6f}  {elapsed_s:10.1f}"
         )
 
     acc = np.array(accuracy_matrix)
@@ -453,12 +477,14 @@ def federated_learning(
     client_selected = np.stack(client_selected_rounds, axis=0)
     modality_selected = np.stack(modality_selected_rounds, axis=0)
     upload_bytes_round = np.array(upload_bytes_per_round, dtype=np.int64)
+    download_bytes_round = np.array(download_bytes_per_round, dtype=np.int64)
     elapsed_seconds_round = np.array(elapsed_seconds_per_round, dtype=np.float64)
     test_acc = np.array(test_acc_per_round, dtype=np.float64)
     return (
         acc,
         mod_counts,
         upload_bytes_round,
+        download_bytes_round,
         client_selected,
         modality_selected,
         elapsed_seconds_round,
