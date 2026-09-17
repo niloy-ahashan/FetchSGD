@@ -1,6 +1,7 @@
 import copy
 import concurrent.futures as cf
 import time
+from contextlib import contextmanager
 
 import numpy as np
 import shap
@@ -24,6 +25,17 @@ def _cuda_safe_pool_workers(requested: int) -> int:
     if torch.cuda.is_available():
         return 1
     return max(1, requested)
+
+
+@contextmanager
+def _encoder_eval(models):
+    for m in models:
+        m.eval()
+    try:
+        yield
+    finally:
+        for m in models:
+            m.train()
 
 
 def round_upload_bytes(global_models, counts_per_modality) -> int:
@@ -106,6 +118,14 @@ def calculate_shapley_values_via_fusion(client_data, client_models, modalities, 
             output = client_models[mod_idx].to(device)(data)
             pred = output.argmax(dim=1, keepdim=True)
             fusion_input.append(pred.cpu().numpy())
+    
+    # with _encoder_eval(client_models):
+    #     for mod_idx, modality in enumerate(modalities):
+    #         with torch.no_grad():
+    #             data, _ = _to_tensor_xy(client_data[modality], device)
+    #             output = client_models[mod_idx].to(device)(data)
+    #             pred = output.argmax(dim=1, keepdim=True)
+    #             fusion_input.append(pred.cpu().numpy())
     fusion_input = np.hstack(fusion_input)
     try:
         fusion_module = RandomForestClassifier(n_estimators=10, random_state=0).fit(
@@ -128,15 +148,16 @@ def train_local_fusion_module(client_data, trained_global_models, modalities, de
         return None, np.nan
     _, target = client_data[modalities[0]]
     fusion_input = []
-    for modality in modalities:
-        with torch.no_grad():
-            mod_idx = modalities.index(modality)
-            data, _ = _to_tensor_xy(client_data[modality], device)
-            if data is None:
-                return None, np.nan
-            output = trained_global_models[mod_idx].to(device)(data)
-            pred = output.argmax(dim=1, keepdim=True)
-            fusion_input.append(pred.cpu().numpy())
+    with _encoder_eval(trained_global_models):
+        for modality in modalities:
+            with torch.no_grad():
+                mod_idx = modalities.index(modality)
+                data, _ = _to_tensor_xy(client_data[modality], device)
+                if data is None:
+                    return None, np.nan
+                output = trained_global_models[mod_idx].to(device)(data)
+                pred = output.argmax(dim=1, keepdim=True)
+                fusion_input.append(pred.cpu().numpy())
     fusion_input = np.hstack(fusion_input)
     try:
         fusion_module = RandomForestClassifier(n_estimators=10, random_state=0).fit(
@@ -156,18 +177,19 @@ def test_client(client_data, global_models, fusion_module, modalities, device="c
     fusion_input = []
     modality_accuracies = []
     target_np = None
-    for modality in modalities:
-        mod_idx = modalities.index(modality)
-        with torch.no_grad():
-            data, target = _to_tensor_xy(client_data[modality], device)
-            if data is None:
-                return nan_row
-            target_np = target.cpu().numpy()
-            output = global_models[mod_idx].to(device)(data)
-            pred = output.argmax(dim=1, keepdim=True)
-            correct = pred.eq(target.view_as(pred)).sum().item()
-            modality_accuracies.append(100.0 * correct / target.size(0))
-            fusion_input.append(pred.cpu().numpy())
+    with _encoder_eval(global_models):
+        for modality in modalities:
+            mod_idx = modalities.index(modality)
+            with torch.no_grad():
+                data, target = _to_tensor_xy(client_data[modality], device)
+                if data is None:
+                    return nan_row
+                target_np = target.cpu().numpy()
+                output = global_models[mod_idx].to(device)(data)
+                pred = output.argmax(dim=1, keepdim=True)
+                correct = pred.eq(target.view_as(pred)).sum().item()
+                modality_accuracies.append(100.0 * correct / target.size(0))
+                fusion_input.append(pred.cpu().numpy())
     fusion_input = np.hstack(fusion_input)
     try:
         fusion_accuracy = fusion_module.score(fusion_input, target_np) * 100
@@ -189,7 +211,7 @@ def evaluate_global_test_acc(global_models, global_test, modalities, device):
         return float("nan")
     fused = None
     y = None
-    with torch.no_grad():
+    with _encoder_eval(global_models), torch.no_grad():
         for mod_idx, modality in enumerate(modalities):
             data, target = _to_tensor_xy(global_test[modality], device)
             if data is None:

@@ -47,7 +47,7 @@ exec "${PYTHON}" main.py \
   --gyro_dim 213 \
   --feat_dim 512 \
   --use_refiner \
-  --iterations 3 \
+  --iterations 7 \
   --local_epochs 5 \
   --top_shap 1 \
   --client_select_ratio 0.2 \

@@ -44,8 +44,8 @@ python3 CommEfficient/CommEfficient/mm_train_independent.py \
   --k 20000 \
   --num_rows 3 \
   --num_cols 5000 \
-  --lr_scale 0.1 \
-  --pivot_epoch 10 \
+  --lr_scale 0.05 \
+  --pivot_epoch 20 \
   --num_blocks 1 \
-  --num_epochs 35 \
+  --num_epochs 85 \
   --device cuda

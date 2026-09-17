@@ -35,7 +35,7 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --sketch_r 2 \
   --sketch_c 128 \
   --mm_dropout 0.3 \
-  --num_epochs 70 \
+  --num_epochs 420 \
   --local_epochs 1 \
   --local_batch_size -1 \
   --upload_object gradient \
@@ -46,12 +46,12 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --k 20000 \
   --num_rows 3 \
   --num_cols 5000 \
-  --lr_scale 0.1 \
-  --pivot_epoch 20 \
+  --lr_scale 0.05 \
+  --pivot_epoch 85 \
   --num_blocks 1 \
   --fusion_mode sketch \
   --client_select loss \
-  --client_select_ratio 0.5 \
+  --client_select_ratio 0.2 \
   --num_select_modalities 1 \
   --device cuda \
   "$@"
