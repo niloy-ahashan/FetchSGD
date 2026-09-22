@@ -3,9 +3,9 @@ import argparse
 
 def args_parser():
     parser = argparse.ArgumentParser(
-        description="MFedMC v2 on the same UCI HAR split as SketchFusionB "
-        "(datasets/uci_har_mm: Acc 348-D + Gyro 213-D), with an IC-style "
-        "per-modality encoder (Extractor + optional Refiner)."
+        description="MFedMC v2 on the same mHealth split as SketchFusionB4 "
+        "(datasets/mhealth_mm: Acc 177-D + Gyro 118-D + Mag 118-D + ECG 43-D), "
+        "with an IC-style per-modality encoder (Extractor + optional Refiner)."
     )
 
     parser.add_argument("--device", type=str, default="cuda")
@@ -14,36 +14,25 @@ def args_parser():
         "--dataset_dir",
         type=str,
         default="",
-        help="Directory with data.npz and optional client*.npz from SketchFusionB. "
-        "Default: <repo>/datasets/uci_har_mm",
-    )
-    parser.add_argument(
-        "--uci_root",
-        type=str,
-        default="",
-        help="Inner UCI HAR folder (contains train/subject_train.txt). "
-        "Used when --partition subject.",
+        help="Directory with data.npz and optional client*.npz from FedMultiModal4. "
+        "Default: <repo>/datasets/mhealth_mm",
     )
     parser.add_argument(
         "--partition",
         type=str,
-        default="subject",
-        choices=["subject", "dirichlet"],
-        help="subject: ActionSense-style one client per UCI person (default). "
-        "dirichlet: SketchFusionB 10-client cache.",
+        default="dirichlet",
+        choices=["dirichlet"],
+        help="dirichlet: reuse the FedMultiModal4 10-client Dirichlet cache "
+        "(only mode currently supported for mHealth; subject-based "
+        "partitioning is a possible follow-up).",
     )
-    parser.add_argument("--num_classes", type=int, default=6)
+    parser.add_argument("--num_classes", type=int, default=12)
     parser.add_argument("--num_clients", type=int, default=10)
     parser.add_argument("--dirichlet_alpha", type=float, default=0.1)
-    parser.add_argument(
-        "--class_non_iid_rate",
-        type=float,
-        default=1.0,
-        help="ActionSense-style extra Dirichlet on subject clients. "
-        "1.0 = off (default). Values < 1 apply Dirichlet with this alpha.",
-    )
-    parser.add_argument("--acc_dim", type=int, default=348)
-    parser.add_argument("--gyro_dim", type=int, default=213)
+    parser.add_argument("--acc_dim", type=int, default=177)
+    parser.add_argument("--gyro_dim", type=int, default=118)
+    parser.add_argument("--mag_dim", type=int, default=118)
+    parser.add_argument("--ecg_dim", type=int, default=43)
     parser.add_argument(
         "--feat_dim",
         type=int,
@@ -119,7 +108,7 @@ def args_parser():
         "--prefer-higher-loss",
         dest="prefer_higher_loss",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Paper's Eq. (18) always selects the lowest-loss clients (default: "
         "False). Pass --prefer-higher-loss to reproduce the old (pre-fix) "
         "highest-loss selection for comparison.",

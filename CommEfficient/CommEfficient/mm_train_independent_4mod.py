@@ -7,6 +7,12 @@ Sketch of the full gradient (Rothchild et al.) — the 4-modality analogue of
 ``mm_train_independent.py``, mirroring how ``mm_train_actionsense_4mod.py``
 is the 4-modality analogue of ``mm_train.py``/``SketchFusionB``.
 
+Like ``mm_train_independent.py``, the loss is plain CE (or BCE for
+multi-label) only: no missing-modality (MFM) term, no similarity-hashing
+term, and no stochastic modality masking.  ``--sim_loss_weight``,
+``--missing_loss_weight``, ``--missing_prob`` and the ``--mm_sketch_*``
+switches are ignored (with a warning) if passed.
+
 Requires ``dataset_dir/prepare_stats.json`` (``mod_dims``, ``num_classes``)
 and ``data.npz`` with ``m0_*`` … ``m3_*`` — e.g. from ``prepare_mhealth_mm.py``.
 
@@ -21,7 +27,6 @@ import os
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
@@ -81,42 +86,60 @@ def _load_prepare_stats(args):
 
 
 def compute_loss_single_label(model, batch, args):
+    del args  # IC loss has no missing-modality / MFM / similarity terms
     m0, m1, m2, m3, targets = batch
-    mp = mm_base._get_missing_prob(model, args)
-    pred, _H = model(m0, m1, m2, m3, missing_prob=mp)
+    pred, _H = model(m0, m1, m2, m3)
     loss = _ce_criterion(pred, targets)
-    miss_w = getattr(args, "missing_loss_weight", 0.0)
-    if miss_w > 0:
-        loss = loss + miss_w * model._missing_loss
     accuracy = _top1_acc(pred, targets)
     return loss, accuracy
 
 
 def compute_loss_multi_label(model, batch, args):
+    del args
     m0, m1, m2, m3, targets = batch
-    mp = mm_base._get_missing_prob(model, args)
-    pred, H = model(m0, m1, m2, m3, missing_prob=mp)
-    cls_loss = _bce_criterion(pred, targets)
-
-    sim_w = getattr(args, "sim_loss_weight", 0.0)
-    if sim_w > 0:
-        aff = targets @ targets.t()
-        aff = torch.sigmoid(aff)
-        aff = 2.0 * aff - 1.0
-        H_norm = F.normalize(H, dim=1)
-        sim = H_norm @ H_norm.t()
-        sim_loss = F.mse_loss(sim, aff)
-        loss = cls_loss + sim_w * sim_loss
-    else:
-        loss = cls_loss
-
-    miss_w = getattr(args, "missing_loss_weight", 0.0)
-    if miss_w > 0:
-        loss = loss + miss_w * model._missing_loss
-
+    pred, _H = model(m0, m1, m2, m3)
+    loss = _bce_criterion(pred, targets)
     predicted = (torch.sigmoid(pred) > 0.5).float()
     accuracy = (predicted == targets).float().mean()
     return loss, accuracy
+
+
+_IGNORED_BOOL_FLAGS = (
+    "mm_sketch_fusion",
+    "mm_sketch_fusion_tri",
+    "mm_sketch_separated",
+)
+_IGNORED_FLOAT_FLAGS = (
+    "sim_loss_weight",
+    "missing_loss_weight",
+    "missing_prob",
+)
+
+
+def _warn_if_unused_flags(args):
+    """Mirror ``mm_train_independent._warn_if_sketch_fusion_flags``.
+
+    Independent Compression uses original FetchSGD (one Count Sketch of
+    the full gradient) and a plain CE/BCE loss, so sketch-fusion switches
+    and MFM / similarity loss weights have no effect here.  Warn and reset
+    them so the printed ``args`` reflect what actually runs.
+    """
+    on_bool = [f for f in _IGNORED_BOOL_FLAGS if getattr(args, f, False)]
+    on_float = [
+        f for f in _IGNORED_FLOAT_FLAGS
+        if float(getattr(args, f, 0.0) or 0.0) != 0.0
+    ]
+    if on_bool or on_float:
+        print(
+            "WARNING: Independent Compression uses original FetchSGD "
+            "(one Count Sketch of the full gradient) with a plain CE/BCE "
+            "loss.  Ignoring: "
+            + ", ".join("--" + f for f in on_bool + on_float)
+        )
+        for f in on_bool:
+            setattr(args, f, False)
+        for f in on_float:
+            setattr(args, f, 0.0)
 
 
 def get_data_loaders(args):
@@ -147,16 +170,14 @@ def get_data_loaders(args):
         test_dataset,
         batch_size=test_batch_size,
         shuffle=False,
-        drop_last=True,
+        drop_last=False,
         num_workers=args.val_dataloader_workers,
         pin_memory=True,
     )
-    n_drop = n_te % test_batch_size
-    if n_drop:
-        print(
-            f"Validation drop_last=True: omitting last {n_drop} test samples "
-            f"(evaluating {n_te - n_drop}/{n_te}; batch_size={test_batch_size})"
-        )
+    print(
+        f"Validation drop_last=False: evaluating all {n_te} test samples "
+        f"(batch_size={test_batch_size})"
+    )
     print(len(train_loader), len(test_loader))
     return train_loader, test_loader
 
@@ -167,6 +188,7 @@ if __name__ == "__main__":
 
     args = parse_args()
     args.model = "IndependentCompression4"
+    _warn_if_unused_flags(args)
     _load_prepare_stats(args)
     print(args)
 

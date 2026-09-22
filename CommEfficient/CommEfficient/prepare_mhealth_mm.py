@@ -36,7 +36,39 @@ Processing pipeline
    the same feature function used by prepare_wisdm_mm.py, generalized here
    to an arbitrary channel count per group instead of a fixed 3.
 4. Concatenate per-location feature vectors to form each modality vector.
-5. Fixed subject-wise train/test split (subjects 1-8 train, 9-10 test).
+5. Train/test split, one of three toggleable modes (``--test_split``):
+     - ``random`` (current default): ignore subject identity entirely;
+       pool every subject's windows together and take a class-stratified
+       random split (``--test_size``, ``--seed``).
+       CAUTION: windows are cut with WINDOW_SIZE=128, STRIDE=64 (50%
+       overlap), so consecutive windows in the same run share half their
+       raw samples. Under this mode a training window and a near-duplicate
+       overlapping test window (same subject, same activity run) can end
+       up on opposite sides of the split — a real leakage risk, and a
+       *stronger* one than ordinary same-subject leakage since the raw
+       samples literally overlap. This is NOT the same thing
+       ``prepare_uci_har_mm.py`` does: that script never pools or
+       re-splits at all, it just inherits UCI's own pre-made,
+       subject-disjoint train/test files as-is.
+     - ``random_group``: the same pooled/random philosophy as ``random``
+       — subject identity is not used to fix a holdout, and runs (and
+       their subjects) are still scattered across train/test — but the
+       split is done over groups instead of individual windows, where a
+       group is one contiguous same-activity run (identified by
+       ``(subject_id, run_index)``), via sklearn's ``GroupShuffleSplit``
+       (``--test_size``, ``--seed``). Every window belonging to a run —
+       including all of its 50%-overlapping neighbors — stays on the
+       same side of the split, so the overlap-leakage risk described
+       above for ``random`` cannot occur here. CAVEAT:
+       ``GroupShuffleSplit`` has no ``stratify=`` option, so class
+       balance across the split is only approximate, not the exact
+       per-window stratification ``random`` achieves.
+     - ``subject``: the original, protocol-matched behavior — fixed
+       subject-wise holdout, subjects 1-8 train, 9-10 test. Immune to the
+       overlap-leakage issue above, since two overlapping windows only
+       ever occur within one subject's run and are therefore always on
+       the same side of this split. Use this if comparing against UCI
+       HAR's own (also subject-disjoint) test set.
 6. Per-feature z-score normalization, fit on train only.
 
 Usage
@@ -44,6 +76,22 @@ Usage
   python prepare_mhealth_mm.py \\
     --mhealth_root datasets/mhealth+dataset/MHEALTHDATASET \\
     --out_dir      datasets/mhealth_mm
+
+  # UCI-HAR-style pooled/random split instead, kept in its own dir so
+  # both caches exist side by side:
+  python prepare_mhealth_mm.py \\
+    --mhealth_root datasets/mhealth+dataset/MHEALTHDATASET \\
+    --out_dir      datasets/mhealth_mm_random \\
+    --test_split   random
+
+  # Group-random split: pooled/random like above, but grouped by
+  # (subject, activity run) so 50%-overlapping windows never split
+  # across train/test -- fixes the leakage CAUTION above while still
+  # scattering runs across all subjects:
+  python prepare_mhealth_mm.py \\
+    --mhealth_root datasets/mhealth+dataset/MHEALTHDATASET \\
+    --out_dir      datasets/mhealth_mm_random_group \\
+    --test_split   random_group
 """
 
 from __future__ import annotations
@@ -184,12 +232,22 @@ def _contiguous_label_runs(labels: np.ndarray) -> list[tuple[int, int, int]]:
 
 
 def _window_subject(raw: np.ndarray, subject_id: int):
+    """Returns (mod_feats, out_labels, out_subjects, out_run_ids).
+
+    ``out_run_ids[i]`` is the 0-indexed position, within this subject's
+    own log, of the contiguous same-activity run window ``i`` came from
+    (see ``_contiguous_label_runs``). It is only unique *within one
+    subject* -- callers that need a globally-unique group id across all
+    subjects (e.g. for ``GroupShuffleSplit``) must combine it with
+    ``subject_id``.
+    """
     labels = raw[:, _COLS["label"]]
     mod_feats = {m: [] for m in MODALITIES}
     out_labels = []
     out_subjects = []
+    out_run_ids = []
 
-    for start, end, lbl in _contiguous_label_runs(labels):
+    for run_idx, (start, end, lbl) in enumerate(_contiguous_label_runs(labels)):
         run_len = end - start
         n_windows = (run_len - WINDOW_SIZE) // STRIDE + 1 if run_len >= WINDOW_SIZE else 0
         for w in range(n_windows):
@@ -200,8 +258,82 @@ def _window_subject(raw: np.ndarray, subject_id: int):
                 mod_feats[m].append(extract_modality_features(window, m))
             out_labels.append(lbl - 1)  # 0-indexed
             out_subjects.append(subject_id)
+            out_run_ids.append(run_idx)
 
-    return mod_feats, out_labels, out_subjects
+    return mod_feats, out_labels, out_subjects, out_run_ids
+
+
+# ------------------------------------------------------------------
+# Train/test split — two toggleable modes
+# ------------------------------------------------------------------
+def _build_split(
+    subjects: np.ndarray,
+    labels: np.ndarray,
+    test_split: str,
+    test_size: float,
+    seed: int,
+    groups: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (train_mask, test_mask) over all windows, one row each.
+
+    ``subject``: the original fixed subject-wise holdout — every window
+    from a TRAIN_SUBJECTS subject is train, every window from a
+    TEST_SUBJECTS subject is test. Windows from the same subject can
+    never appear on both sides.
+
+    ``random``: subject identity is ignored entirely. Every window from
+    every subject is pooled together, then a class-stratified random
+    split assigns each window to train or test independently — the same
+    pooled-then-split philosophy ``prepare_uci_har_mm.py`` uses (it just
+    consumes an already-pooled, already-split file). Windows from the
+    same subject can end up on both sides here. CAUTION: because windows
+    overlap 50% within a run, a training window and an overlapping test
+    window can share half their raw samples — see module docstring.
+
+    ``random_group``: same pooled-random philosophy as ``random`` — runs
+    (and their subjects) are still scattered across train/test, not held
+    out wholesale like ``subject`` — but the split unit is ``groups``
+    (one id per contiguous same-activity run) instead of the individual
+    window, via sklearn's GroupShuffleSplit. Every window sharing a group
+    lands on the same side, and since overlap only ever occurs *within*
+    one run, this eliminates the overlap-leakage risk that ``random``
+    has. CAVEAT: GroupShuffleSplit has no stratify= option, so class
+    balance across the split is only approximate here, not the exact
+    per-window stratification ``random`` gets.
+    """
+    if test_split == "subject":
+        train_mask = np.isin(subjects, TRAIN_SUBJECTS)
+        test_mask = np.isin(subjects, TEST_SUBJECTS)
+        return train_mask, test_mask
+
+    if test_split == "random_group":
+        from sklearn.model_selection import GroupShuffleSplit
+
+        if groups is None:
+            raise ValueError(
+                "groups is required for test_split='random_group'")
+        idx = np.arange(len(labels))
+        gss = GroupShuffleSplit(
+            n_splits=1, test_size=test_size, random_state=seed)
+        train_idx, test_idx = next(gss.split(idx, labels, groups))
+        train_mask = np.zeros(len(labels), dtype=bool)
+        test_mask = np.zeros(len(labels), dtype=bool)
+        train_mask[train_idx] = True
+        test_mask[test_idx] = True
+        return train_mask, test_mask
+
+    # test_split == "random"
+    from sklearn.model_selection import train_test_split
+
+    idx = np.arange(len(labels))
+    train_idx, test_idx = train_test_split(
+        idx, test_size=test_size, stratify=labels, random_state=seed,
+    )
+    train_mask = np.zeros(len(labels), dtype=bool)
+    test_mask = np.zeros(len(labels), dtype=bool)
+    train_mask[train_idx] = True
+    test_mask[test_idx] = True
+    return train_mask, test_mask
 
 
 # ------------------------------------------------------------------
@@ -215,6 +347,42 @@ def main(argv: list[str] | None = None) -> None:
                     help="Path to the dir containing mHealth_subject<N>.log files")
     p.add_argument("--out_dir", type=str, default="datasets/mhealth_mm",
                     help="Directory for data.npz / prepare_stats.json")
+    p.add_argument("--test_split", type=str,
+                    choices=["subject", "random", "random_group"],
+                    default="random",
+                    help="random (current default): ignore subject "
+                    "identity, class-stratified random split over the "
+                    "pooled windows from all 10 subjects. CAUTION: with "
+                    "50%%-overlapping windows (STRIDE=64 < WINDOW_SIZE="
+                    "128), this can leak near-duplicate windows across "
+                    "train/test — NOT equivalent to how "
+                    "prepare_uci_har_mm.py's split works (that script "
+                    "never pools/re-splits at all). random_group: same "
+                    "pooled/random philosophy as random -- runs are "
+                    "still scattered across all subjects -- but splits "
+                    "by (subject, contiguous same-activity run) group "
+                    "via sklearn's GroupShuffleSplit instead of by "
+                    "individual window, so 50%%-overlapping windows "
+                    "from the same run can never land on opposite "
+                    "sides. This fixes the leakage CAUTION above. "
+                    "CAVEAT: GroupShuffleSplit has no stratify= option, "
+                    "so class balance is only approximate here, not "
+                    "the exact per-window stratification random gets. "
+                    "subject: the original, protocol-matched, "
+                    "leakage-safe fixed subject 1-8 train / 9-10 test "
+                    "holdout. Toggle this and use a different --out_dir "
+                    "to keep all caches around to compare.")
+    p.add_argument("--test_size", type=float, default=0.3,
+                    help="Test fraction for --test_split random or "
+                    "random_group (ignored for subject; subject mode's "
+                    "own ratio works out to ~0.198, close to this "
+                    "default). For random_group this is a target, not "
+                    "exact: GroupShuffleSplit assigns whole groups to "
+                    "each side, so the realized test fraction can "
+                    "drift slightly depending on group sizes.")
+    p.add_argument("--seed", type=int, default=42,
+                    help="RNG seed for --test_split random or "
+                    "random_group (ignored for subject).")
     args = p.parse_args(argv)
 
     root = os.path.abspath(args.mhealth_root)
@@ -222,6 +390,7 @@ def main(argv: list[str] | None = None) -> None:
     all_mod_feats = {m: [] for m in MODALITIES}
     all_labels = []
     all_subjects = []
+    all_run_ids = []
 
     all_subject_ids = TRAIN_SUBJECTS + TEST_SUBJECTS
     for sid in all_subject_ids:
@@ -229,15 +398,30 @@ def main(argv: list[str] | None = None) -> None:
         if not os.path.isfile(path):
             raise FileNotFoundError(path)
         raw = _load_subject_log(path)
-        mod_feats, labels, subjects = _window_subject(raw, sid)
+        mod_feats, labels, subjects, run_ids = _window_subject(raw, sid)
         for m in MODALITIES:
             all_mod_feats[m].extend(mod_feats[m])
         all_labels.extend(labels)
         all_subjects.extend(subjects)
+        all_run_ids.extend(run_ids)
         print(f"  subject {sid}: {len(labels)} windows")
 
     labels = np.array(all_labels, dtype=np.int64)
     subjects = np.array(all_subjects, dtype=np.int64)
+    run_ids = np.array(all_run_ids, dtype=np.int64)
+
+    # Globally-unique (subject, run) group id for --test_split
+    # random_group. GROUP_ID_MULTIPLIER must exceed the max number of
+    # contiguous same-activity runs any one subject has -- observed max
+    # is 17 (subject 7) with WINDOW_SIZE=128/STRIDE=64; 1000 leaves
+    # large headroom if those constants ever change.
+    GROUP_ID_MULTIPLIER = 1000
+    assert run_ids.max() < GROUP_ID_MULTIPLIER, (
+        "a subject has more contiguous runs than GROUP_ID_MULTIPLIER "
+        "assumes -- raise GROUP_ID_MULTIPLIER in prepare_mhealth_mm.py"
+    )
+    groups = subjects * GROUP_ID_MULTIPLIER + run_ids
+
     mod_arrays = {
         m: np.array(all_mod_feats[m], dtype=np.float32) for m in MODALITIES
     }
@@ -246,14 +430,18 @@ def main(argv: list[str] | None = None) -> None:
     for m in MODALITIES:
         print(f"  {m}: dim={mod_arrays[m].shape[1]}")
 
-    train_mask = np.isin(subjects, TRAIN_SUBJECTS)
-    test_mask = np.isin(subjects, TEST_SUBJECTS)
+    train_mask, test_mask = _build_split(
+        subjects, labels, args.test_split, args.test_size, args.seed,
+        groups=groups,
+    )
 
     savez_kwargs = {
         "labels_train": labels[train_mask],
         "labels_test": labels[test_mask],
         "subjects_train": subjects[train_mask],
         "subjects_test": subjects[test_mask],
+        "groups_train": groups[train_mask],
+        "groups_test": groups[test_mask],
         "mod_names": np.array(MODALITIES),
     }
 
@@ -288,10 +476,27 @@ def main(argv: list[str] | None = None) -> None:
         "window_size": WINDOW_SIZE,
         "stride": STRIDE,
         "sample_rate": SAMPLE_RATE,
-        "train_subjects": TRAIN_SUBJECTS,
-        "test_subjects": TEST_SUBJECTS,
+        "test_split": args.test_split,
+        "test_size": (
+            args.test_size
+            if args.test_split in ("random", "random_group") else None
+        ),
+        "seed": (
+            args.seed
+            if args.test_split in ("random", "random_group") else None
+        ),
+        "train_subjects": TRAIN_SUBJECTS if args.test_split == "subject" else None,
+        "test_subjects": TEST_SUBJECTS if args.test_split == "subject" else None,
         "n_train": int(train_mask.sum()),
         "n_test": int(test_mask.sum()),
+        "n_groups_train": (
+            int(len(np.unique(groups[train_mask])))
+            if args.test_split == "random_group" else None
+        ),
+        "n_groups_test": (
+            int(len(np.unique(groups[test_mask])))
+            if args.test_split == "random_group" else None
+        ),
         "activity_names": ACTIVITY_NAMES,
     }
     stats_path = os.path.join(args.out_dir, "prepare_stats.json")
@@ -299,6 +504,9 @@ def main(argv: list[str] | None = None) -> None:
         json.dump(stats, f, indent=2)
 
     print(f"\nWrote {out_npz}")
+    print(f"  test_split={args.test_split}"
+          + (f" test_size={args.test_size} seed={args.seed}"
+             if args.test_split in ("random", "random_group") else ""))
     print(f"  train {stats['n_train']}  test {stats['n_test']}  "
           f"num_classes={NUM_CLASSES}")
     print(f"  mod_dims={mod_dims}")

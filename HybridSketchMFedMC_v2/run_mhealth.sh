@@ -14,7 +14,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${HERE}/.." && pwd)"
-DATA_PATH="${DATA_PATH:-${ROOT}/datasets/mhealth_mm}"
+DATA_PATH="${DATA_PATH:-${ROOT}/datasets/mhealth_mm_random_group}"
 
 if [[ -x "${ROOT}/MFedMC/.venv/bin/python" ]]; then
   PYTHON="${ROOT}/MFedMC/.venv/bin/python"
@@ -47,9 +47,9 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --mode sketch \
   --k 20000 \
   --num_rows 3 \
-  --num_cols 10000 \
-  --lr_scale 0.01 \
-  --pivot_epoch 25 \
+  --num_cols 5000 \
+  --lr_scale 0.05 \
+  --pivot_epoch 40 \
   --num_blocks 1 \
   --fusion_mode sketch \
   --client_select loss \
