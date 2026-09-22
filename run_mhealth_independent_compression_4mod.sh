@@ -43,7 +43,7 @@ python3 CommEfficient/CommEfficient/mm_train_independent_4mod.py \
   --missing_loss_weight 0.0 \
   --missing_prob 0.0 \
   --skip_map \
-  --mm_local_epochs 10 \
+  --mm_local_epochs 1 \
   --local_batch_size -1 \
   --local_momentum 0.0 \
   --virtual_momentum 0.9 \
@@ -51,13 +51,13 @@ python3 CommEfficient/CommEfficient/mm_train_independent_4mod.py \
   --mode sketch \
   --num_clients 10 \
   --num_devices 1 \
-  --num_workers 5 \
+  --num_workers 10 \
   --share_ps_gpu \
   --k 20000 \
   --num_rows 3 \
-  --num_cols 1000 \
-  --lr_scale 0.01 \
-  --pivot_epoch 10 \
+  --num_cols 5000 \
+  --lr_scale 0.1 \
+  --pivot_epoch 20 \
   --num_blocks 1 \
-  --num_epochs 40 \
+  --num_epochs 85 \
   --device cuda
