@@ -1,0 +1,2 @@
+Vendored from https://github.com/batoolsalehi/FL-based-Sector-Selection @ 94cd337 (2026-10-15).
+Paper: FLASH.pdf, from https://par.nsf.gov/servlets/purl/10356271

@@ -46,10 +46,10 @@ exec "${PYTHON}" "${HERE}/main_uci_har_v2.py" \
   --bit 64 \
   --hidden_dim 128 \
   --common_dim 32 \
-  --rounds 5 \
+  --rounds 10 \
   --batch_size 64 \
   --train_ep 10 \
   --train_ep_private 10 \
-  --seed 46 \
+  --seed 42 \
   --device cuda \
   "$@"

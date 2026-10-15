@@ -1,0 +1,11 @@
+# Versions pinned to FLASH README (Python 3.8, TF 2.2.0, Keras 2.4.3).
+tensorflow==2.2.0
+keras==2.4.3
+numpy==1.18.5
+h5py==2.10.0
+scipy==1.4.1
+scikit-learn==0.23.2
+pandas==1.1.5
+tqdm
+opencv-python-headless==4.5.5.64
+protobuf==3.20.3
