@@ -1,5 +1,6 @@
 set -e
-bits=(16 32 64 128)
+# bits=(16 32 64 128)
+bits=(16)
 for i in ${bits[*]}; do
  CUDA_VISIBLE_DEVICES=0 python main.py --bit $i \
                                                     --dataset flickr \

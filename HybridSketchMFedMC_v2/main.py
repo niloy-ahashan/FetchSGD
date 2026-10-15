@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 
@@ -13,10 +14,49 @@ from options import args_parser
 from utils import Timer
 
 
-def main():
-    args = args_parser()
-    print(args)
+class _Tee:
+    def __init__(self, *streams):
+        self.streams = streams
 
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+    def isatty(self):
+        return False
+
+
+def _txt_stem(args, cum_up_mb):
+    dataset = os.path.basename(os.path.normpath(args.dataset_dir or "unknown"))
+    up_str = f"{cum_up_mb:.2f}MB" if cum_up_mb is not None else "NAMB"
+    alpha = getattr(args, "dirichlet_alpha", 0.1)
+    epochs = float(args.num_epochs)
+    it = int(epochs) if epochs == int(epochs) else epochs
+    n_workers = max(1, int(round(args.client_select_ratio * args.num_clients)))
+    n_workers = min(n_workers, args.num_clients)
+    loss_str = "highloss" if args.prefer_higher_loss else "lowloss"
+    return (
+        f"HybridV2_{dataset}_mm_{up_str}_dirichlet{alpha:g}_it{it}_"
+        f"r{args.num_rows}xc{args.num_cols}_k{args.k}_"
+        f"lr{args.lr_scale:g}_"
+        f"Top_{args.num_select_modalities}_"
+        f"Client_{args.client_select_ratio:.1f}_"
+        f"{loss_str}_"
+        f"clients{args.num_clients}_workers{n_workers}_seed{args.seed}"
+    )
+
+
+def _result_updated_dir():
+    here = os.path.abspath(os.path.dirname(__file__))
+    return os.path.join(here, "result_updated")
+
+
+def _run(args):
     timer = Timer()
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -77,8 +117,12 @@ def main():
         results_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), results_dir)
     os.makedirs(results_dir, exist_ok=True)
 
+    print("Finished initializing in {:.2f} seconds".format(timer()))
+    print("Hyperparameters (resolved):")
+    for k, v in sorted(vars(args).items()):
+        print(f"  {k}: {v}")
+
     history = run_federated(args, model, clients, global_test, modalities, device)
-    _ = timer()
 
     client_select_freq = history["client_selected"].mean(axis=0)
     modality_select_freq = history["modality_selected"].mean(axis=(0, 1))
@@ -141,6 +185,25 @@ def main():
         weight_decay=np.array(args.weight_decay),
     )
     print(f"Results saved to {file_name}")
+    return history["total_upload_mib"]
+
+
+def main():
+    args = args_parser()
+    log_buf = io.StringIO()
+    stdout_orig = sys.stdout
+    sys.stdout = _Tee(stdout_orig, log_buf)
+    cum_up_mb = None
+    try:
+        cum_up_mb = _run(args)
+    finally:
+        sys.stdout = stdout_orig
+        updated_dir = _result_updated_dir()
+        os.makedirs(updated_dir, exist_ok=True)
+        txt_path = os.path.join(updated_dir, _txt_stem(args, cum_up_mb) + ".txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(log_buf.getvalue())
+        print(f"Console log saved to {txt_path}")
 
 
 if __name__ == "__main__":

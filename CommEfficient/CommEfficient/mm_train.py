@@ -231,7 +231,7 @@ def evaluate_map(fed_model, args, topk=None):
 # Training loops (mirrors cv_train.py)
 # ------------------------------------------------------------------
 def train(model, opt, lr_scheduler, train_loader, test_loader,
-          args, writer, loggers=(), timer=None):
+          args, writer, loggers=(), timer=None, compact_console=False):
     timer = timer or Timer()
 
     total_download = 0
@@ -252,6 +252,11 @@ def train(model, opt, lr_scheduler, train_loader, test_loader,
         )
 
     target_acc_hit = False
+
+    train_start = None
+    prev_elapsed = 0.0
+    if compact_console:
+        train_start = time.perf_counter()
 
     for epoch in range(math.ceil(args.num_epochs)):
         epoch_fraction = (args.num_epochs - epoch
@@ -277,7 +282,7 @@ def train(model, opt, lr_scheduler, train_loader, test_loader,
         )
         test_time = timer()
 
-        if getattr(args, "skip_map", False):
+        if compact_console or getattr(args, "skip_map", False):
             map_val = None
             map_time = 0.0
         else:
@@ -299,20 +304,39 @@ def train(model, opt, lr_scheduler, train_loader, test_loader,
             lr = args.lr if args.lr is not None else args.lr_scale
 
         comm_cum_mib = total_download + total_upload
-        row = {
-            "epoch": epoch + 1,
-            "lr": lr,
-            # "train_time": train_time,
-            "train_loss": train_loss,
-            "train_acc": train_acc,
-            "test_loss": test_loss,
-            "test_acc": test_acc,
-            "down (MB)": rounded_down,
-            "up (MB)": rounded_up,
-            "total_time": timer.total_time,
-        }
-        if map_val is not None:
-            row["MAP"] = round(map_val, 4)
+        if compact_console:
+            elapsed_s = time.perf_counter() - train_start
+            round_s = elapsed_s - prev_elapsed
+            prev_elapsed = elapsed_s
+            row = {
+                "iter": epoch + 1,
+                # "lr": lr,
+                # "train_loss": train_loss,
+                # "train_acc": train_acc,
+                # "test_loss": test_loss,
+                "test_acc": test_acc,
+                "up_MB": rounded_up,
+                "cum_up_MB": total_upload,
+                "down_MB": rounded_down,
+                "cum_down_MB": total_download,
+                "round_s": round_s,
+                "time_s": elapsed_s,
+            }
+        else:
+            row = {
+                "epoch": epoch + 1,
+                "lr": lr,
+                # "train_time": train_time,
+                "train_loss": train_loss,
+                "train_acc": train_acc,
+                "test_loss": test_loss,
+                "test_acc": test_acc,
+                "down (MB)": rounded_down,
+                "up (MB)": rounded_up,
+                "total_time": timer.total_time,
+            }
+            if map_val is not None:
+                row["MAP"] = round(map_val, 4)
         summary = row
         for logger in loggers:
             logger.append(summary)

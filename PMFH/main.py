@@ -32,6 +32,9 @@ class LocalUpdate(object):
         optimizer_private = torch.optim.Adam(private_modal.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
 
+        private_loss_sum, private_steps = 0.0, 0
+        global_loss_sum, global_steps = 0.0, 0
+
         private_modal.train()
         torch.autograd.set_detect_anomaly(True)
         for epoch in range(args.train_ep_private):
@@ -53,6 +56,8 @@ class LocalUpdate(object):
                 loss.backward()
                 clip_grad_norm_(private_modal.parameters(), 1.)
                 optimizer_private.step()
+                private_loss_sum += loss.item()
+                private_steps += 1
 
         global_modal.train()
         private_modal.eval()
@@ -95,6 +100,8 @@ class LocalUpdate(object):
                 loss.backward()
                 clip_grad_norm_(global_modal.parameters(), 1.)
                 optimizer_global.step()
+                global_loss_sum += loss.item()
+                global_steps += 1
                 
         with torch.no_grad():
             private_modal.eval()
@@ -121,7 +128,9 @@ class LocalUpdate(object):
             local_protos = {}
             for i in range(args.classes):
                 local_protos[i] = proj_bank_img[proj_bank_img.shape[0] // args.classes * i: proj_bank_img.shape[0] // args.classes * (i+1)].mean(0)
-        return global_modal.cpu().state_dict(), private_modal.cpu().state_dict(), local_protos
+        private_loss = private_loss_sum / max(private_steps, 1)
+        global_loss = global_loss_sum / max(global_steps, 1)
+        return global_modal.cpu().state_dict(), private_modal.cpu().state_dict(), local_protos, private_loss, global_loss
     
 
 class LocalTest(object):

@@ -13,6 +13,7 @@ matches Independent Compression / original FetchSGD:
 from __future__ import annotations
 
 import copy
+import time
 from collections import deque
 
 import numpy as np
@@ -31,7 +32,6 @@ from sketch import fetchsgd_server_step, sketch_vector
 from utils import (
     PiecewiseLinear,
     TableLogger,
-    Timer,
     get_grad_vec,
     get_param_vec,
     normalization,
@@ -320,7 +320,6 @@ def run_federated(args, model, clients, global_test, modalities, device):
         [0, args.lr_scale, 0],
     )
     logger = TableLogger()
-    timer = Timer()
 
     upload_per_client = args.num_rows * args.num_cols * BYTES_PER_FLOAT32
     total_download = 0.0
@@ -345,7 +344,6 @@ def run_federated(args, model, clients, global_test, modalities, device):
         f"Modality select: top={args.num_select_modalities or 'all'} "
         f"random={args.random_modality}"
     )
-    print("Finished initializing in {:.2f} seconds".format(timer()))
 
     history = {
         "train_loss": [],
@@ -364,6 +362,9 @@ def run_federated(args, model, clients, global_test, modalities, device):
     download_state = _init_download_state(
         args, n_clients, k_clients, grad_size, global_vec, device
     )
+
+    train_start = time.perf_counter()
+    prev_elapsed = 0.0
 
     for epoch in range(args.num_epochs):
         lr = float(lr_schedule(epoch + 1))
@@ -543,7 +544,9 @@ def run_federated(args, model, clients, global_test, modalities, device):
             shard_size=getattr(args, "valid_batch_size", 8),
         )
 
-        timer()
+        elapsed_s = time.perf_counter() - train_start
+        round_s = elapsed_s - prev_elapsed
+        prev_elapsed = elapsed_s
         download_mb = download_bytes / (1000 * 1000)
         upload_mb = upload_bytes / (1000 * 1000)
         total_download += download_mb
@@ -551,15 +554,14 @@ def run_federated(args, model, clients, global_test, modalities, device):
 
         logger.append(
             {
-                "epoch": epoch + 1,
-                "lr": lr,
-                "train_loss": train_loss,
-                "train_acc": train_acc,
-                "test_loss": test_loss,
+                "iter": epoch + 1,
                 "test_acc": test_acc,
-                "down (MB)": download_mb,
-                "up (MB)": upload_mb,
-                "total_time": timer.total_time,
+                "up_MB": upload_mb,
+                "cum_up_MB": total_upload,
+                "down_MB": download_mb,
+                "cum_down_MB": total_download,
+                "round_s": round_s,
+                "time_s": elapsed_s,
             }
         )
 

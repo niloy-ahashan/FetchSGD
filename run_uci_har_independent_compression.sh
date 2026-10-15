@@ -30,22 +30,22 @@ python3 CommEfficient/CommEfficient/mm_train_independent.py \
   --mm_dropout 0.3 \
   --num_classes 6 \
   --dirichlet_alpha 0.1 \
-  --skip_map \
-  --mm_local_epochs 1 \
   --local_batch_size -1 \
   --local_momentum 0.0 \
   --virtual_momentum 0.9 \
   --error_type virtual \
-  --mode sketch \
-  --num_clients 10 \
-  --num_devices 1 \
-  --num_workers 10 \
   --share_ps_gpu \
+  --mode sketch \
   --k 20000 \
   --num_rows 3 \
   --num_cols 5000 \
-  --lr_scale 0.05 \
-  --pivot_epoch 20 \
-  --num_blocks 1 \
   --num_epochs 85 \
+  --pivot_epoch 20 \
+  --mm_local_epochs 1 \
+  --seed 42 \
+  --num_clients 10 \
+  --num_workers 10 \
+  --lr_scale 0.05 \
+  --num_blocks 1 \
+  --num_devices 1 \
   --device cuda

@@ -12,7 +12,9 @@ runs are unchanged.
 
 from __future__ import annotations
 
+import io
 import os
+import sys
 
 import numpy as np
 import torch
@@ -92,14 +94,45 @@ def _warn_if_sketch_fusion_flags(args):
             setattr(args, f, False)
 
 
-if __name__ == "__main__":
-    multiprocessing.set_start_method("spawn")
-    print("MY PID:", os.getpid())
+class _Tee:
+    def __init__(self, *streams):
+        self.streams = streams
 
-    args = parse_args()
-    args.model = "IndependentCompression"
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+    def isatty(self):
+        return False
+
+
+def _txt_stem(args, cum_up_mb):
+    dataset = os.path.basename(os.path.normpath(args.dataset_dir or "unknown"))
+    up_str = f"{cum_up_mb:.2f}MB" if cum_up_mb is not None else "NAMB"
+    alpha = getattr(args, "dirichlet_alpha", 0.1)
+    epochs = float(args.num_epochs)
+    it = int(epochs) if epochs == int(epochs) else epochs
+    return (
+        f"IC_{dataset}_mm_{up_str}_dirichlet{alpha:g}_it{it}_"
+        f"r{args.num_rows}xc{args.num_cols}_k{args.k}_"
+        f"lr{args.lr_scale:g}_"
+        f"clients{args.num_clients}_workers{args.num_workers}_seed{args.seed}"
+    )
+
+
+def _result_updated_dir():
+    here = os.path.abspath(os.path.dirname(__file__))
+    return os.path.abspath(os.path.join(here, "..", "result_updated"))
+
+
+def _run(args):
     _warn_if_sketch_fusion_flags(args)
-    print(args)
+    print("MY PID:", os.getpid())
 
     timer = Timer()
     np.random.seed(args.seed)
@@ -123,6 +156,9 @@ if __name__ == "__main__":
 
     acc_dim = args.acc_dim if args.acc_dim is not None else args.img_dim
     gyro_dim = args.gyro_dim if args.gyro_dim is not None else args.txt_dim
+    args.acc_dim = acc_dim
+    args.gyro_dim = gyro_dim
+    args.num_classes = num_classes
     model_config = {
         "acc_dim": acc_dim,
         "gyro_dim": gyro_dim,
@@ -181,9 +217,38 @@ if __name__ == "__main__":
     print("Total params:", sum(
         p.numel() for p in model.parameters() if p.requires_grad
     ))
+    print("Hyperparameters (resolved):")
+    for k, v in sorted(vars(args).items()):
+        print(f"  {k}: {v}")
 
-    train(
+    summary = train(
         model, opt, lr_scheduler, train_loader, test_loader, args,
         writer, loggers=(TableLogger(),), timer=timer,
+        compact_console=True,
     )
     model.finalize()
+    if summary and "cum_up_MB" in summary:
+        return summary["cum_up_MB"]
+    return None
+
+
+if __name__ == "__main__":
+    multiprocessing.set_start_method("spawn")
+    args = parse_args()
+    args.model = "IndependentCompression"
+    args.skip_map = True
+
+    log_buf = io.StringIO()
+    stdout_orig = sys.stdout
+    sys.stdout = _Tee(stdout_orig, log_buf)
+    cum_up_mb = None
+    try:
+        cum_up_mb = _run(args)
+    finally:
+        sys.stdout = stdout_orig
+        updated_dir = _result_updated_dir()
+        os.makedirs(updated_dir, exist_ok=True)
+        txt_path = os.path.join(updated_dir, _txt_stem(args, cum_up_mb) + ".txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(log_buf.getvalue())
+        print(f"Console log saved to {txt_path}")

@@ -40,17 +40,19 @@ cd "${UCI_HAR}"
 exec "${PYTHON}" main.py \
   --dataset_dir "${DATA_PATH}" \
   --partition dirichlet \
-  --num_clients 10 \
   --dirichlet_alpha 0.1 \
   --num_classes 6 \
   --acc_dim 348 \
   --gyro_dim 213 \
   --feat_dim 512 \
   --use_refiner \
-  --iterations 7 \
+  --batch_size 32 \
+  --seed 42 \
+  --iterations 14 \
   --local_epochs 5 \
+  --num_clients 10 \
+  --client_select_ratio 0.1 \
   --top_shap 1 \
-  --client_select_ratio 0.2 \
   --train_ratio 1.0 \
   --eval_on_global_test \
   "$@"

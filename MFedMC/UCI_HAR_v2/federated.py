@@ -198,17 +198,22 @@ def test_client(client_data, global_models, fusion_module, modalities, device="c
     return modality_accuracies + [fusion_accuracy]
 
 
-def evaluate_global_test_acc(global_models, global_test, modalities, device):
-    """Official-test accuracy matching Independent Compression / HybridSketchMFedMC.
+def evaluate_global_test_acc(
+    global_models, global_test, modalities, device, shard_size=8
+):
+    """Official-test accuracy matching HybridSketchMFedMC_v2 / IC averaging.
 
-    One global model, both modalities, argmax of summed log-probs on the
-    shared UCI HAR test split. Returns a fraction in [0, 1].
+    Fusion is still argmax of summed Acc+Gyro log-probs. Averaging matches
+    Hybrid ``evaluate_model_ic_shards``: unweighted mean of per-shard
+    accuracies (default shard size 8; a leftover shard of 3 counts as much
+    as a full shard). Returns a fraction in [0, 1].
     """
     if global_test is None:
         return float("nan")
     n = len(global_test[modalities[0]][1])
     if n < 1:
         return float("nan")
+    shard_size = max(1, int(shard_size))
     fused = None
     y = None
     with _encoder_eval(global_models), torch.no_grad():
@@ -220,7 +225,11 @@ def evaluate_global_test_acc(global_models, global_test, modalities, device):
             logp = global_models[mod_idx].to(device)(data)
             fused = logp if fused is None else fused + logp
     pred = fused.argmax(dim=1)
-    return float((pred == y).float().mean().item())
+    accs = []
+    for start in range(0, n, shard_size):
+        end = min(start + shard_size, n)
+        accs.append(float((pred[start:end] == y[start:end]).float().mean().item()))
+    return float(np.mean(accs))
 
 
 def compute_modality_priority(shap_value, model_size, recency, modality_weights, top_shap):
@@ -428,11 +437,13 @@ def federated_learning(
     client_selected_rounds = []
     modality_selected_rounds = []
 
-    mod_acc_hdr = "  ".join(f"{m:>8}" for m in modalities)
+    # fusion / Acc / Gyro columns come from evaluate_round (disabled in the loop).
+    # Restore with: f"{'iter':>4}  {'test_acc':>8}  {'fusion':>8}  {mod_acc_hdr}  "
+    # mod_acc_hdr = "  ".join(f"{m:>8}" for m in modalities)
     header = (
-        f"{'iter':>4}  {'test_acc':>8}  {'fusion':>8}  {mod_acc_hdr}  "
+        f"{'iter':>4}  {'test_acc':>8}  "
         f"{'up_MB':>10}  {'cum_up_MB':>10}  {'down_MB':>10}  {'cum_down_MB':>10}  "
-        f"{'time_s':>10}"
+        f"{'round_s':>10}  {'time_s':>10}"
     )
     train_start = time.perf_counter()
     print(header)
@@ -475,23 +486,42 @@ def federated_learning(
         upload_bytes_per_round.append(ub_round)
         db_round = round_download_bytes(global_models, len(client_list))
         download_bytes_per_round.append(db_round)
-        accs = evaluate_round(
-            client_list, client_data_train, client_data_test, global_models, modalities, device
-        )
+        # Stage-2 RF fusion eval (paper metric): fit a local RF per client and
+        # score Acc / Gyro / fusion. Disabled so time_s and logs only reflect
+        # test_acc (IC/Hybrid-style official-test logit-sum, shard-of-8).
+        # Uncomment the evaluate_round call and drop the NaN placeholder to restore.
+        # accs = evaluate_round(
+        #     client_list, client_data_train, client_data_test, global_models, modalities, device
+        # )
+        accs = np.full((len(client_list), len(modalities) + 1), np.nan)
         accuracy_matrix.append(accs)
-        test_acc = evaluate_global_test_acc(global_models, global_test, modalities, device)
+        test_acc = evaluate_global_test_acc(
+            global_models,
+            global_test,
+            modalities,
+            device,
+            shard_size=getattr(args, "valid_batch_size", 8),
+        )
         test_acc_per_round.append(test_acc)
-        mean_fusion = float(np.nanmean(accs[:, -1]))
-        mean_mod = np.nanmean(accs[:, :-1], axis=0)
+        # Restore with evaluate_round:
+        # if np.isnan(accs).all():
+        #     mean_fusion = float("nan")
+        #     mean_mod = np.full(len(modalities), np.nan)
+        # else:
+        #     mean_fusion = float(np.nanmean(accs[:, -1]))
+        #     mean_mod = np.nanmean(accs[:, :-1], axis=0)
+        # mod_acc = "  ".join(f"{a:8.2f}" for a in mean_mod)
         cum_up = int(np.sum(upload_bytes_per_round))
         cum_down = int(np.sum(download_bytes_per_round))
         elapsed_s = time.perf_counter() - train_start
+        prev_elapsed = elapsed_seconds_per_round[-1] if elapsed_seconds_per_round else 0.0
+        round_s = elapsed_s - prev_elapsed
         elapsed_seconds_per_round.append(elapsed_s)
-        mod_acc = "  ".join(f"{a:8.2f}" for a in mean_mod)
         print(
-            f"{ite + 1:4d}  {test_acc:8.4f}  {mean_fusion:8.2f}  {mod_acc}  "
+            f"{ite + 1:4d}  {test_acc:8.4f}  "
             f"{ub_round / 1e6:10.6f}  {cum_up / 1e6:10.6f}  "
-            f"{db_round / 1e6:10.6f}  {cum_down / 1e6:10.6f}  {elapsed_s:10.1f}"
+            f"{db_round / 1e6:10.6f}  {cum_down / 1e6:10.6f}  "
+            f"{round_s:10.1f}  {elapsed_s:10.1f}"
         )
 
     acc = np.array(accuracy_matrix)

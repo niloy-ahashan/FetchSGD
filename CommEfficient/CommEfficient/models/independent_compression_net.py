@@ -90,11 +90,6 @@ class IndependentCompression(nn.Module):
         """Summation fusion in the shared feature space."""
         return f_acc_refined + f_gyro_refined
 
-    def extract_fused(self, acc_feat, gyro_feat):
-        f_acc_r, f_gyro_r = self._extract_and_refine(acc_feat, gyro_feat)
-        fused = self._fuse(f_acc_r, f_gyro_r)
-        return self.integrator(fused)
-
     def forward(self, acc_feat, gyro_feat):
         f_acc_r, f_gyro_r = self._extract_and_refine(acc_feat, gyro_feat)
         fused = self._fuse(f_acc_r, f_gyro_r)

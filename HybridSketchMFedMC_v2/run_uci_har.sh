@@ -32,26 +32,27 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --acc_dim 348 \
   --gyro_dim 213 \
   --feat_dim 512 \
+  --fusion_mode sketch \
   --sketch_r 2 \
   --sketch_c 128 \
   --mm_dropout 0.3 \
-  --num_epochs 420 \
-  --local_epochs 1 \
   --local_batch_size -1 \
   --upload_object gradient \
   --weight_decay 5e-4 \
   --virtual_momentum 0.9 \
   --error_type virtual \
+  --lr_scale 0.05 \
   --mode sketch \
   --k 20000 \
   --num_rows 3 \
-  --num_cols 5000 \
-  --lr_scale 0.05 \
-  --pivot_epoch 85 \
+  --num_cols 20000 \
+  --num_epochs 53 \
+  --pivot_epoch 15 \
+  --local_epochs 1 \
+  --seed 42 \
   --num_blocks 1 \
-  --fusion_mode sketch \
-  --client_select loss \
-  --client_select_ratio 0.2 \
   --num_select_modalities 1 \
+  --client_select_ratio 0.4 \
+  --client_select loss \
   --device cuda \
   "$@"

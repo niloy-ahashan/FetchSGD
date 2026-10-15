@@ -63,6 +63,13 @@ def args_parser():
     parser.add_argument("--mm_dropout", type=float, default=0.3)
     parser.add_argument("--lr", type=float, default=0.05)
     parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument(
+        "--valid_batch_size",
+        type=int,
+        default=8,
+        help="IC/Hybrid val shard size for logged test_acc "
+        "(unweighted mean over shards of this many examples).",
+    )
 
     parser.add_argument(
         "--train_ratio",
