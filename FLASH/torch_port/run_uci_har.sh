@@ -42,7 +42,7 @@ exec "${PYTHON}" "${HERE}/main.py" \
   --dataset_dir "${DATA_PATH}" \
   --num_clients 10 \
   --dirichlet_alpha 0.1 \
-  --rounds 14 \
+  --rounds 3 \
   --local_epochs 10 \
   --lr 1e-4 \
   --bs 32 \
