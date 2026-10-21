@@ -52,6 +52,13 @@ def args_parser():
     parser.add_argument("--mm_dropout", type=float, default=0.3)
     parser.add_argument("--lr", type=float, default=0.05)
     parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument(
+        "--valid_batch_size",
+        type=int,
+        default=8,
+        help="IC/Hybrid val shard size for logged test_acc "
+        "(unweighted mean over shards of this many examples).",
+    )
 
     parser.add_argument(
         "--train_ratio",
@@ -108,10 +115,10 @@ def args_parser():
         "--prefer-higher-loss",
         dest="prefer_higher_loss",
         action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Paper's Eq. (18) always selects the lowest-loss clients (default: "
-        "False). Pass --prefer-higher-loss to reproduce the old (pre-fix) "
-        "highest-loss selection for comparison.",
+        default=True,
+        help="Select the highest-loss clients (default: True, same as "
+        "HybridSketchMFedMC_v2). The paper's Eq. (18) selects the lowest-loss "
+        "clients; pass --no-prefer-higher-loss to reproduce it.",
     )
     parser.add_argument(
         "--results_dir",

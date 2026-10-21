@@ -54,7 +54,7 @@ for s in "${SEED_LIST[@]:0:${NUM_SEEDS}}"; do
     --dataset_dir "${DATA_PATH}" \
     --num_clients 10 \
     --dirichlet_alpha 0.1 \
-    --rounds 280 \
+    --rounds 70 \
     --clients_per_round 8 \
     --local_epochs 3 \
     --lr 1e-3 \

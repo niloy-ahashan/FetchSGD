@@ -55,10 +55,6 @@ PMFH/data/
 PMFH/logs/
 FL-FD/dataset/*.csv
 FL-FD/dataset/camera/
-ActionNet/recording_data/myo_library/myo-sdk-win-0.9.0/bin/
-ActionNet/recording_data/myo_library/myo-sdk-win-0.9.0/lib/
-ActionNet/recording_data/myo_library/myo-sdk-win-0.9.0/drivers/
-ActionNet/recording_data/myo_library/myo-sdk-win-0.9.0/*.unitypackage
 
 # Nested git metadata (treat subprojects as plain source trees)
 **/.git/

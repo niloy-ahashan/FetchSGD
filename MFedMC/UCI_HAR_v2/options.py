@@ -127,9 +127,9 @@ def args_parser():
         dest="prefer_higher_loss",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Paper's Eq. (18) always selects the lowest-loss clients (default: "
-        "False). Pass --prefer-higher-loss to reproduce the old (pre-fix) "
-        "highest-loss selection for comparison.",
+        help="Select the highest-loss clients (default: True, same as "
+        "HybridSketchMFedMC_v2). The paper's Eq. (18) selects the lowest-loss "
+        "clients; pass --no-prefer-higher-loss to reproduce it.",
     )
     parser.add_argument(
         "--results_dir",

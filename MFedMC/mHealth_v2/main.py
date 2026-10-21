@@ -1,5 +1,7 @@
+import io
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
@@ -23,15 +25,69 @@ def _default_dataset_dir():
     return os.path.join(repo, "datasets", "mhealth_mm")
 
 
+class _Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+    def isatty(self):
+        return False
+
+
+def _txt_stem(args, cum_up_mb):
+    if args.partition == "dirichlet":
+        partition_token = f"dirichlet{args.dirichlet_alpha:g}"
+    else:
+        partition_token = args.partition
+    loss_str = "highloss" if args.prefer_higher_loss else "lowloss"
+    n_workers = max(1, round(args.client_select_ratio * args.num_clients))
+    up_str = f"{cum_up_mb:.2f}MB" if cum_up_mb is not None else "NAMB"
+    return (
+        f"MFedMC_mHealth_v2_mm_{up_str}_{partition_token}_it{args.iterations}_"
+        f"Top_{args.top_shap}_"
+        f"Client_{args.client_select_ratio:.1f}_"
+        f"lr{args.lr}_{loss_str}_"
+        f"clients{args.num_clients}_workers{n_workers}_seed{args.seed}"
+    )
+
+
 def main():
     args = args_parser()
+    log_buf = io.StringIO()
+    stdout_orig = sys.stdout
+    sys.stdout = _Tee(stdout_orig, log_buf)
+    cum_up_mb = None
+    try:
+        cum_up_mb = _run(args)
+    finally:
+        sys.stdout = stdout_orig
+        updated_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result_updated")
+        os.makedirs(updated_dir, exist_ok=True)
+        txt_path = os.path.join(updated_dir, _txt_stem(args, cum_up_mb) + ".txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(log_buf.getvalue())
+        print(f"Console log saved to {txt_path}")
+
+
+def _run(args):
+    init_start = time.perf_counter()
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
     dataset_dir = args.dataset_dir or _default_dataset_dir()
+    args.dataset_dir = os.path.abspath(dataset_dir)
     results_dir = args.results_dir
     if not os.path.isabs(results_dir):
         results_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), results_dir)
+    args.results_dir = results_dir
     os.makedirs(results_dir, exist_ok=True)
 
     print("Loading mHealth Acc/Gyro/Mag/ECG features...")
@@ -80,6 +136,13 @@ def main():
         n_params = sum(p.numel() for p in m.parameters() if p.requires_grad)
         print(f"{name} model params: {n_params}")
 
+    print("Hyperparameters (resolved):")
+    for k, v in sorted(vars(args).items()):
+        print(f"  {k}: {v}")
+
+    print("Finished initializing in {:.2f} seconds".format(
+        time.perf_counter() - init_start
+    ))
     print("Starting MFedMC federated learning on Acc + Gyro + Mag + ECG...")
     (
         acc,
@@ -101,7 +164,10 @@ def main():
     )
     upload_bytes_cumulative = np.cumsum(upload_bytes_round)
     download_bytes_cumulative = np.cumsum(download_bytes_round)
-    mean_fusion_acc = np.nanmean(acc[:, :, -1], axis=1)
+    if acc.size == 0 or np.isnan(acc).all():
+        mean_fusion_acc = np.full(acc.shape[0], np.nan)
+    else:
+        mean_fusion_acc = np.nanmean(acc[:, :, -1], axis=1)
     client_select_freq = client_selected.mean(axis=0)
     # Fraction of (round, client) pairs that uploaded each modality.
     modality_select_freq = modality_selected.mean(axis=(0, 1))
@@ -122,11 +188,14 @@ def main():
         f"Modality select freq given client was selected: "
         + ", ".join(f"{m}={f:.4f}" for m, f in zip(MODALITIES, modality_select_freq_given_client))
     )
+    cum_up_mb = int(upload_bytes_cumulative[-1]) / 1e6
     print(
         f"Final test accuracy: {float(test_acc[-1]):.4f} "
         f"({100.0 * float(test_acc[-1]):.2f}%) | "
-        f"RF fusion: {float(mean_fusion_acc[-1]):.2f}% | "
-        f"Cumulative uplink: {int(upload_bytes_cumulative[-1]) / 1e6:.6f} MB | "
+        # RF fusion eval is commented out in federated.py; restore this
+        # fragment together with evaluate_round:
+        # f"RF fusion: {float(mean_fusion_acc[-1]):.2f}% | "
+        f"Cumulative uplink: {cum_up_mb:.6f} MB | "
         f"Cumulative downlink: {int(download_bytes_cumulative[-1]) / 1e6:.6f} MB"
     )
 
@@ -164,6 +233,7 @@ def main():
         use_refiner=np.array(args.use_refiner),
     )
     print(f"Results saved to {file_name}")
+    return cum_up_mb
 
 
 if __name__ == "__main__":

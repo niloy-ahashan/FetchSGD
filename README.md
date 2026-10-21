@@ -41,7 +41,7 @@ FetchSGD/
 ├── HybridSketchMFedMC/              # Hybrid v1 (local SGD, client-weighted delta sketches)
 ├── HybridSketchMFedMC_v2/           # Hybrid v2 (FetchSGD-style gradient sketches)
 ├── csh/                             # csvec Count Sketch library
-├── PMFH/, factorized/, ActionNet/   # Reference code from other papers / dataset tooling
+├── PMFH/                          # PMFH baseline (vendored upstream + UCI HAR wrappers)
 └── run_*.sh                         # One launcher per (dataset × method) config
 ```
 
@@ -176,4 +176,4 @@ This work builds on FetchSGD (Rothchild et al., ICML 2020) and MFedMC (arXiv:240
 
 ## License
 
-See the per-directory licenses: `csh/LICENSE`, `MFedMC/LICENSE`, `ActionNet/LICENSE`, `factorized/LICENSE`.
+See the per-directory licenses: `csh/LICENSE`, `MFedMC/LICENSE`.
