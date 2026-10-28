@@ -81,20 +81,20 @@ COMMON_ARGS=(
   --num_rows 3
   --num_cols 5000
   --lr_scale 0.05
-  --pivot_epoch 15
+  --pivot_epoch 10
   --num_blocks 1
   --num_epochs 42
   --device cuda
 )
 
-if [[ -z "${NUM_SEEDS:-}" && -z "${SEEDS:-}" ]]; then
-  # Default path: single exec, --seed 42.
-  exec "${PYTHON}" "${COMMON_ARGS[@]}" --seed 42 "$@"
-fi
+# if [[ -z "${NUM_SEEDS:-}" && -z "${SEEDS:-}" ]]; then
+#   # Default path: single exec, --seed 42.
+#   exec "${PYTHON}" "${COMMON_ARGS[@]}" --seed 42 "$@"
+# fi
 
 # --- Opt-in multi-seed sweep -------------------------------------------------
-NUM_SEEDS="${NUM_SEEDS:-1}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
-SEEDS="${SEEDS:-42 43 44 45 46}"    # seed values, space-separated
+NUM_SEEDS="${NUM_SEEDS:-5}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
+SEEDS="${SEEDS:-47 48 44 45 46}"    # seed values, space-separated
 
 read -r -a SEED_LIST <<< "${SEEDS}"
 FAILED=()

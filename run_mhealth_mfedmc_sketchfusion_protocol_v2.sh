@@ -71,23 +71,23 @@ COMMON_ARGS=(
   --ecg_dim 43
   --feat_dim 512
   --use_refiner
-  --iterations 10
+  --iterations 8
   --local_epochs 5
-  --top_shap 2
-  --client_select_ratio 0.2
+  --top_shap 1
+  --client_select_ratio 0.1
   --train_ratio 1.0
   --eval_on_global_test
 )
 
 cd "${MHEALTH}"
 
-if [[ -z "${NUM_SEEDS:-}" && -z "${SEEDS:-}" ]]; then
-  # Default path: single exec, --seed 42.
-  exec "${PYTHON}" main.py "${COMMON_ARGS[@]}" --seed 42 "$@"
-fi
+# if [[ -z "${NUM_SEEDS:-}" && -z "${SEEDS:-}" ]]; then
+#   # Default path: single exec, --seed 42.
+#   exec "${PYTHON}" main.py "${COMMON_ARGS[@]}" --seed 42 "$@"
+# fi
 
 # --- Opt-in multi-seed sweep -------------------------------------------------
-NUM_SEEDS="${NUM_SEEDS:-1}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
+NUM_SEEDS="${NUM_SEEDS:-5}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
 SEEDS="${SEEDS:-42 43 44 45 46}"    # seed values, space-separated
 
 read -r -a SEED_LIST <<< "${SEEDS}"

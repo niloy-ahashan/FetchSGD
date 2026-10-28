@@ -41,7 +41,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${HERE}/../.." && pwd)"
 DATA_PATH="${DATA_PATH:-${ROOT}/datasets/mhealth_mm}"
 PYTHON="${PYTHON:-${ROOT}/venv/bin/python}"   # needs pyts + Pillow (MFedMC/.venv lacks them)
-NUM_SEEDS="${NUM_SEEDS:-1}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
+NUM_SEEDS="${NUM_SEEDS:-5}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
 SEEDS="${SEEDS:-42 43 44 45 46}"    # seed values, space-separated
 
 cd "${ROOT}"

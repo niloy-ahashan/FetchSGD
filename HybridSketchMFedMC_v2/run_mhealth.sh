@@ -55,7 +55,6 @@ COMMON_ARGS=(
   --sketch_r 2
   --sketch_c 128
   --mm_dropout 0.3
-  --num_epochs 210
   --local_epochs 1
   --local_batch_size -1
   --upload_object gradient
@@ -65,26 +64,27 @@ COMMON_ARGS=(
   --mode sketch
   --k 20000
   --num_rows 3
-  --num_cols 5000
+  --num_cols 20000
+  --num_epochs 105
+  --pivot_epoch 25
   --lr_scale 0.05
-  --pivot_epoch 40
   --num_blocks 1
   --fusion_mode sketch
   --client_select loss
-  --client_select_ratio 0.2
-  --num_select_modalities 2
+  --client_select_ratio 0.1
+  --num_select_modalities 1
   --device cuda
 )
 
 cd "${ROOT}"
 
-if [[ -z "${NUM_SEEDS:-}" && -z "${SEEDS:-}" ]]; then
-  # Default path: unchanged behavior. Single exec, --seed 42 (the options.py default).
-  exec "${PYTHON}" "${HERE}/main.py" "${COMMON_ARGS[@]}" --seed 42 "$@"
-fi
+# if [[ -z "${NUM_SEEDS:-}" && -z "${SEEDS:-}" ]]; then
+#   # Default path: unchanged behavior. Single exec, --seed 42 (the options.py default).
+#   exec "${PYTHON}" "${HERE}/main.py" "${COMMON_ARGS[@]}" --seed 42 "$@"
+# fi
 
 # --- Opt-in multi-seed sweep -------------------------------------------------
-NUM_SEEDS="${NUM_SEEDS:-1}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
+NUM_SEEDS="${NUM_SEEDS:-5}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
 SEEDS="${SEEDS:-42 43 44 45 46}"    # seed values, space-separated
 
 read -r -a SEED_LIST <<< "${SEEDS}"

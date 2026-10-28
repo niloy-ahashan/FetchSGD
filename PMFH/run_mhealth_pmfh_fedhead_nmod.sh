@@ -36,7 +36,7 @@ else
   PYTHON="${PYTHON:-python3}"
 fi
 
-NUM_SEEDS="${NUM_SEEDS:-1}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
+NUM_SEEDS="${NUM_SEEDS:-5}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
 SEEDS="${SEEDS:-42 43 44 45 46}"    # seed values, space-separated
 
 cd "${HERE}"
@@ -56,9 +56,9 @@ for s in "${SEED_LIST[@]:0:${NUM_SEEDS}}"; do
   --dirichlet_alpha 0.1 \
   --classes 12 \
   --bit 64 \
-  --hidden_dim 128 \
+  --hidden_dim 64 \
   --common_dim 32 \
-  --rounds 7 \
+  --rounds 1 \
   --batch_size 64 \
   --train_ep 10 \
   --train_ep_private 10 \
@@ -77,7 +77,7 @@ done
 
 # mean over the finished seeds, in the Results-sheet columns
 if (( ${#DONE[@]} )); then
-  "${PYTHON}" "${HERE}/summarize_seeds_mhealth.py" --prefix PMFHfhN --dataset mhealth_mm_random_group --since "${START}" --seeds "${DONE[@]}" || true
+  "${PYTHON}" "${HERE}/summarize_seeds_mhealth.py" --prefix PMFHfhN --dataset mhealth_mm --since "${START}" --seeds "${DONE[@]}" || true
 fi
 
 if (( ${#FAILED[@]} )); then
