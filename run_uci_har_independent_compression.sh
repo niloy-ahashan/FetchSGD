@@ -80,7 +80,7 @@ if [[ -z "${NUM_SEEDS:-}" && -z "${SEEDS:-}" ]]; then
 fi
 
 # --- Opt-in multi-seed sweep -------------------------------------------------
-NUM_SEEDS="${NUM_SEEDS:-5}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
+NUM_SEEDS="${NUM_SEEDS:-1}"         # how many seeds to run: the first NUM_SEEDS values of SEEDS
 SEEDS="${SEEDS:-42 43 44 45 46}"    # seed values, space-separated
 
 read -r -a SEED_LIST <<< "${SEEDS}"

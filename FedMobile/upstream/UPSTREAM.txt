@@ -1,0 +1,8 @@
+FedMobile (Liu, Wang, Yuan, "FedMobile: Enabling Knowledge Contribution-aware Multi-modal Federated
+Learning with Incomplete Modalities", The Web Conference (WWW) 2025, doi:10.1145/3696410.3714623,
+arXiv:2502.15839).
+
+Released code: https://github.com/yiliucs/WWW25 @ 41dd79c (2024-12-11), archived on Zenodo as
+doi:10.5281/zenodo.14802364 (license CC-BY-4.0; the GitHub repo itself has no LICENSE file).
+The two are file-for-file identical. Copied here unchanged.
+Our port on the shared UCI HAR / mHealth split is FedMobile/torch_port/.
